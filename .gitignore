@@ -11,3 +11,5 @@ ideas.md
 docs/
 
 # misc
+
+__pycache__/
