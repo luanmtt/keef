@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+import keef.config
 from keef.config import SlskdConfig
 from keef.models import ConnectionState, SlskdStatus
 
@@ -26,6 +27,44 @@ def test_config_accepts_valid_values() -> None:
 
     assert str(config.base_url) == "http://localhost:5030/"
     assert config.timeout_seconds == 5
+
+
+def test_config_uses_local_slskd_default() -> None:
+    """
+    test_config_uses_local_slskd_default: usa URL local padrão.
+
+    input:
+        nenhuma URL explícita.
+
+    output:
+        None, teste aprovado quando a configuração aponta para o slskd local.
+    """
+    config = SlskdConfig()
+
+    assert str(config.base_url) == "http://127.0.0.1:5030"
+
+
+def test_config_persists_explicit_url(monkeypatch, tmp_path) -> None:
+    """
+    test_config_persists_explicit_url: salva e recupera URL do usuário.
+
+    input:
+        URL explícita e arquivo de configuração temporário.
+
+    output:
+        None, teste aprovado quando próxima configuração reutiliza a URL.
+    """
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr(keef.config, "CONFIG_PATH", config_path)
+
+    first = SlskdConfig.from_sources(
+        url="http://slskd.local:5030",
+        persist_url=True,
+    )
+    second = SlskdConfig.from_sources()
+
+    assert str(first.base_url) == "http://slskd.local:5030/"
+    assert second.base_url == first.base_url
 
 
 def test_config_rejects_invalid_url() -> None:
