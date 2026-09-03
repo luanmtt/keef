@@ -1,7 +1,10 @@
+from uuid import UUID
+
 import httpx
 
 from keef.config import SlskdConfig
 from keef.models import ConnectionReport
+from keef.models import SearchRequest
 from keef.slskd import SlskdClient
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -132,5 +135,81 @@ def test_get_status_handles_malformed_server_payload() -> None:
 
     assert report.reachable is False
     assert "objeto JSON" in (report.detail or "")
+
+
+def test_search_sends_expected_payload() -> None:
+    """
+    test_search_sends_expected_payload: verifica criação de pesquisa.
+
+    input:
+        solicitação com texto e limites de busca.
+
+    output:
+        None, teste aprovado quando payload e UUID são processados.
+    """
+    search_id = "12345678-1234-5678-1234-567812345678"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """
+        handler: valida requisição de pesquisa simulada.
+
+        input:
+            request, requisição HTTP.
+
+        output:
+            httpx.Response, pesquisa criada.
+        """
+        assert request.method == "POST"
+        assert request.url.path.endswith("/searches")
+        assert request.read() == b'{"searchText":"Artist Blue","searchTimeout":5,"responseLimit":10}'
+
+        return httpx.Response(200, json={"id": search_id, "responses": []})
+
+    client = build_client(handler)
+
+    try:
+        result = client.search(
+            SearchRequest.model_validate(
+                {"search_text": "Artist Blue", "search_timeout": 5, "response_limit": 10}
+            )
+        )
+    finally:
+        client.close()
+
+    assert str(result.id) == search_id
+
+
+def test_get_search_responses_accepts_list_payload() -> None:
+    """
+    test_get_search_responses_accepts_list_payload: lê respostas de pesquisa.
+
+    input:
+        lista JSON simulada retornada pelo endpoint.
+
+    output:
+        None, teste aprovado quando objetos são preservados.
+    """
+    search_id = "12345678-1234-5678-1234-567812345678"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """
+        handler: retorna respostas simuladas.
+
+        input:
+            request, requisição HTTP.
+
+        output:
+            httpx.Response, lista de respostas.
+        """
+        return httpx.Response(200, json=[{"username": "alice", "files": []}])
+
+    client = build_client(handler)
+
+    try:
+        responses = client.get_search_responses(UUID(search_id))
+    finally:
+        client.close()
+
+    assert responses == [{"username": "alice", "files": []}]
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

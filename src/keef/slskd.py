@@ -1,9 +1,10 @@
 from typing import Any
+from uuid import UUID
 
 import httpx
 
 from keef.config import SlskdConfig
-from keef.models import ConnectionReport, SlskdServerState
+from keef.models import ConnectionReport, SearchRequest, SearchResult, SlskdServerState
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -103,6 +104,77 @@ class SlskdClient:
             account=server_state.username,
         )
 
+    def search(self, request: SearchRequest) -> SearchResult:
+        """
+        search: inicia uma pesquisa na rede Soulseek.
+
+        input:
+            request, texto e opções validados da pesquisa.
+
+        output:
+            SearchResult, pesquisa criada pelo slskd.
+        """
+        payload = self._post_json(
+            "/api/v0/searches",
+            {
+                "searchText": request.search_text,
+                "searchTimeout": request.search_timeout,
+                "responseLimit": request.response_limit,
+            },
+        )
+
+        return SearchResult.model_validate(payload)
+
+    def get_search_responses(self, search_id: UUID) -> list[dict[str, Any]]:
+        """
+        get_search_responses: obtém respostas detalhadas de uma pesquisa.
+
+        input:
+            search_id, identificador UUID da pesquisa.
+
+        output:
+            list[dict[str, Any]], respostas de busca validadas como objetos.
+        """
+        payload = self._request_json(f"/api/v0/searches/{search_id}/responses")
+
+        if isinstance(payload, dict):
+            responses = payload.get("responses", payload)
+        else:
+            responses = payload
+
+        if not isinstance(responses, list) or not all(isinstance(item, dict) for item in responses):
+            raise TypeError("As respostas da pesquisa não são uma lista de objetos.")
+
+        return responses
+
+    def enqueue_download(
+        self,
+        username: str,
+        filename: str,
+        size: int,
+        destination: str,
+    ) -> dict[str, Any]:
+        """
+        enqueue_download: solicita um download individual em staging.
+
+        input:
+            username, usuário que possui o arquivo.
+            filename, caminho remoto do arquivo.
+            size, tamanho esperado em bytes.
+            destination, pasta relativa de destino no slskd.
+
+        output:
+            dict[str, Any], resposta da fila de downloads.
+        """
+        return self._post_json(
+            f"/api/v0/transfers/downloads/batches",
+            {
+                "username": username,
+                "files": [{"filename": filename, "size": size}],
+                "options": {"destination": destination},
+            },
+        )
+
     def _get_json(self, path: str) -> dict[str, Any]:
         """
         _get_json: obtém um objeto JSON de uma rota.
@@ -113,13 +185,46 @@ class SlskdClient:
         output:
             dict[str, Any], payload JSON validado como objeto.
         """
-        response = self._http.get(path)
-        response.raise_for_status()
-        payload = response.json()
+        payload = self._request_json(path)
 
         if not isinstance(payload, dict):
             raise TypeError("A resposta da API não é um objeto JSON.")
 
         return payload
+
+    def _request_json(self, path: str) -> Any:
+        """
+        _request_json: executa GET e decodifica JSON sem restringir o formato.
+
+        input:
+            path, caminho relativo da API.
+
+        output:
+            Any, payload JSON retornado pelo slskd.
+        """
+        response = self._http.get(path)
+        response.raise_for_status()
+
+        return response.json()
+
+    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """
+        _post_json: envia payload JSON para uma rota.
+
+        input:
+            path, caminho relativo da API.
+            payload, corpo JSON da requisição.
+
+        output:
+            dict[str, Any], resposta JSON validada como objeto.
+        """
+        response = self._http.post(path, json=payload)
+        response.raise_for_status()
+        response_payload = response.json()
+
+        if not isinstance(response_payload, dict):
+            raise TypeError("A resposta da API não é um objeto JSON.")
+
+        return response_payload
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
