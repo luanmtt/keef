@@ -100,7 +100,7 @@ class FakeInstallClient(FakeClient):
             dict, confirmação simulada da fila.
         """
         self.download_requested = True
-        return {"queued": True}
+        return {"queued": True, "state": "queued", "id": "batch-1"}
 
 
 def test_status_command_uses_rich_output(monkeypatch) -> None:

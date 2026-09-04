@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 
 import httpx
@@ -8,9 +9,10 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from keef.config import SlskdConfig
+from keef.batch import load_metadata_report, preview_batch
 from keef.library import scan_library
 from keef.matching import candidates_from_responses, score_candidate
-from keef.models import ConnectionReport, SearchRequest
+from keef.models import ConnectionReport, QualityPolicy, SearchRequest
 from keef.music import try_read_mp3
 from keef.outputs import create_output_dir, write_metadata_report
 from keef.slskd import SlskdClient
@@ -34,7 +36,6 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     status_parser = subparsers.add_parser("status", help="verifica o estado do slskd")
     status_parser.add_argument("--url", help="URL base da API do slskd")
-    status_parser.add_argument("--token", help="token da API do slskd")
     status_parser.add_argument("--timeout", type=float, help="timeout em segundos")
     install_parser = subparsers.add_parser(
         "install", help="pesquisa e prepara uma música para instalação"
@@ -52,7 +53,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="confirma e solicita o download; sem esta opção apenas simula",
     )
     install_parser.add_argument("--url", help="URL base da API do slskd")
-    install_parser.add_argument("--token", help="token da API do slskd")
     install_parser.add_argument("--timeout", type=float, help="timeout em segundos")
     scan_parser = subparsers.add_parser(
         "scan", help="lê metadados MP3 de um diretório"
@@ -64,6 +64,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("outputs"),
         help="diretório raiz dos relatórios",
     )
+    preview_parser = subparsers.add_parser(
+        "preview", help="prepara preview batch sem iniciar downloads"
+    )
+    preview_parser.add_argument("report", type=Path, help="caminho para metadata.json")
+    preview_parser.add_argument(
+        "--policy",
+        choices=[policy.value for policy in QualityPolicy],
+        default=QualityPolicy.HIGHER.value,
+        help="política de bitrate MP3",
+    )
+    preview_parser.add_argument("--target-kbps", type=int, help="bitrate alvo para exact")
+    preview_parser.add_argument(
+        "--online",
+        action="store_true",
+        help="pesquisa candidatos no slskd; sem isto o preview é offline",
+    )
+    preview_parser.add_argument("--url", help="URL base da API do slskd")
+    preview_parser.add_argument("--timeout", type=float, help="timeout em segundos")
 
     return parser
 
@@ -83,15 +101,12 @@ def _status_config(args: argparse.Namespace) -> SlskdConfig:
     if args.url is not None:
         config_values["base_url"] = args.url
 
-    if args.token is not None:
-        config_values["api_token"] = args.token
-
     if args.timeout is not None:
         config_values["timeout_seconds"] = args.timeout
 
     return SlskdConfig.from_sources(
         url=config_values.get("base_url"),
-        token=config_values.get("api_token"),
+        token=os.getenv("KEEF_SLSKD_TOKEN"),
         timeout=config_values.get("timeout_seconds"),
         persist_url=args.url is not None,
     )
@@ -211,7 +226,7 @@ def _install_config(args: argparse.Namespace) -> SlskdConfig:
     """
     return SlskdConfig.from_sources(
         url=args.url,
-        token=args.token,
+        token=os.getenv("KEEF_SLSKD_TOKEN"),
         timeout=args.timeout,
         persist_url=args.url is not None,
     )
@@ -286,7 +301,7 @@ def _run_install(args: argparse.Namespace) -> int:
     client = SlskdClient(config)
 
     try:
-        client.enqueue_download(
+        response = client.enqueue_download(
             username=selected.candidate.username,
             filename=selected.candidate.filename,
             size=selected.candidate.size,
@@ -298,8 +313,27 @@ def _run_install(args: argparse.Namespace) -> int:
     finally:
         client.close()
 
-    console.print("[green]Download solicitado com sucesso.[/green]")
+    _render_download_status(response)
     return 0
+
+
+def _render_download_status(response: dict) -> None:
+    """
+    _render_download_status: apresenta resposta de enfileiramento.
+
+    input:
+        response, payload retornado pelo slskd.
+
+    output:
+        None, imprime identificador e estado disponíveis.
+    """
+    identifier = response.get("id") or response.get("batchId") or response.get("batch_id")
+    state = response.get("state") or response.get("status") or "queued"
+
+    console.print(
+        "[green]Download solicitado.[/green] "
+        f"id={identifier or 'indisponível'} state={state}"
+    )
 
 
 def _render_scan_summary(result, report_path: Path) -> None:
@@ -346,6 +380,112 @@ def _run_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _render_preview(items) -> None:
+    """
+    _render_preview: apresenta decisões do preview batch.
+
+    input:
+        items, resultados individuais do preview.
+
+    output:
+        None, imprime tabela Rich no console.
+    """
+    table = Table(title="Preview batch")
+    table.add_column("Arquivo local")
+    table.add_column("Candidato")
+    table.add_column("Score")
+    table.add_column("Qualidade")
+    table.add_column("Decisão")
+
+    for item in items:
+        if item.error:
+            table.add_row(item.track.path, "-", "-", "-", f"erro: {item.error}")
+            continue
+
+        if not item.candidates:
+            table.add_row(item.track.path, "-", "-", "-", "sem candidatos")
+            continue
+
+        for match, quality in zip(item.candidates, item.quality_decisions):
+            accepted = match.accepted and quality.eligible
+            table.add_row(
+                item.track.path,
+                match.candidate.filename,
+                f"{match.score:.2f}",
+                quality.reason,
+                "elegível" if accepted else "rejeitado",
+            )
+
+    console.print(table)
+
+
+def _run_preview(args: argparse.Namespace) -> int:
+    """
+    _run_preview: executa preview batch offline ou online.
+
+    input:
+        args, relatório, política e opções da CLI.
+
+    output:
+        int, código de saída do preview.
+    """
+    try:
+        report = load_metadata_report(args.report)
+    except (OSError, ValueError) as error:
+        console.print(f"[red]Relatório inválido:[/red] {error}")
+        return 2
+
+    client = None
+
+    if args.online:
+        try:
+            client = SlskdClient(
+                SlskdConfig.from_sources(
+                    url=args.url,
+                    token=os.getenv("KEEF_SLSKD_TOKEN"),
+                    timeout=args.timeout,
+                    persist_url=args.url is not None,
+                )
+            )
+        except ValueError as error:
+            console.print(f"[red]Configuração inválida:[/red] {error}")
+            return 2
+
+    def candidate_provider(track) -> list:
+        """
+        candidate_provider: pesquisa candidatos para uma track.
+
+        input:
+            track, música que será pesquisada.
+
+        output:
+            list, candidatos normalizados ou lista vazia no modo offline.
+        """
+        if client is None:
+            return []
+
+        search_text = " ".join(value for value in [track.artist, track.title] if value)
+        search = client.search(SearchRequest(search_text=search_text))
+        responses = search.responses or client.get_search_responses(search.id)
+
+        return candidates_from_responses(responses)
+
+    try:
+        items = preview_batch(
+            report,
+            candidate_provider,
+            QualityPolicy(args.policy),
+            args.target_kbps,
+        )
+    finally:
+        if client is not None:
+            client.close()
+
+    _render_preview(items)
+
+    return 0
+
+
 def main() -> int:
     """
     main: executa a CLI.
@@ -366,6 +506,9 @@ def main() -> int:
 
     if args.command == "scan":
         return _run_scan(args)
+
+    if args.command == "preview":
+        return _run_preview(args)
 
     return 2
 

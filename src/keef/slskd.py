@@ -1,5 +1,6 @@
 from typing import Any
 from uuid import UUID
+from urllib.parse import quote
 
 import httpx
 
@@ -174,6 +175,20 @@ class SlskdClient:
                 "options": {"destination": destination},
             },
         )
+
+    def get_download_status(self, username: str, download_id: str) -> dict[str, Any]:
+        """
+        get_download_status: consulta estado de um download.
+
+        input:
+            username, usuário que possui o arquivo.
+            download_id, identificador do download no slskd.
+
+        output:
+            dict[str, Any], estado retornado pela API.
+        """
+        encoded_username = quote(username, safe="")
+        return self._get_json(f"/api/v0/transfers/downloads/{encoded_username}/{download_id}")
 
     def _get_json(self, path: str) -> dict[str, Any]:
         """

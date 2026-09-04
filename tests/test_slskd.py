@@ -212,4 +212,37 @@ def test_get_search_responses_accepts_list_payload() -> None:
 
     assert responses == [{"username": "alice", "files": []}]
 
+
+def test_get_download_status_uses_encoded_username() -> None:
+    """
+    test_get_download_status_uses_encoded_username: consulta estado de download.
+
+    input:
+        usuário com espaço e identificador de download.
+
+    output:
+        None, teste aprovado quando rota e payload são processados.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        """
+        handler: responde estado de transferência simulado.
+
+        input:
+            request, requisição HTTP.
+
+        output:
+            httpx.Response, estado queued.
+        """
+        assert request.url.raw_path.endswith(b"/alice%20smith/transfer-1")
+        return httpx.Response(200, json={"id": "transfer-1", "state": "queued"})
+
+    client = build_client(handler)
+
+    try:
+        status = client.get_download_status("alice smith", "transfer-1")
+    finally:
+        client.close()
+
+    assert status["state"] == "queued"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
