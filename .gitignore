@@ -3,13 +3,30 @@
 STATE.md
 ideas.md
 
+# secrets
+
+.env
+.env.local
+.env.*
+!.env.example
+
+
 # diretórios
 
 .keef/
 .venv/
 .paul/
+.pytest_cache
+songs/
 docs/
+outputs/
+slskd.yml
+docker-compose.override.yml
+
 
 # misc
-
 __pycache__/
+*.py[cod]
+*.log
+*.pem
+*.key
