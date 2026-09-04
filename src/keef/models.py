@@ -81,4 +81,27 @@ class MatchResult(BaseModel):
     ambiguous: bool
     reasons: list[str] = Field(default_factory=list)
 
+
+class MetadataReport(BaseModel):
+    tracks: list[MusicTrack] = Field(default_factory=list)
+    errors: list[dict[str, str]] = Field(default_factory=list)
+
+
+class QualityPolicy(StrEnum):
+    HIGHER = "higher"
+    LOWER = "lower"
+    EXACT = "exact"
+
+
+class QualityDecision(BaseModel):
+    eligible: bool
+    reason: str
+
+
+class BatchPreviewItem(BaseModel):
+    track: MusicTrack
+    candidates: list[MatchResult] = Field(default_factory=list)
+    quality_decisions: list[QualityDecision] = Field(default_factory=list)
+    error: str | None = None
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
