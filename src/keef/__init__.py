@@ -645,7 +645,7 @@ def _run_preview(args: argparse.Namespace) -> int:
         search_text = _format_search_text(track.title, track.album, track.artist)
 
         if args.verbose:
-            console.print(f"[dim]Pesquisando:[/dim] {search_text}")
+            console.print(f"\n[dim]Query:[/dim] [cyan]{search_text}[/cyan]")
 
         search = client.search(
             SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
@@ -655,7 +655,10 @@ def _run_preview(args: argparse.Namespace) -> int:
         )
 
         if args.verbose:
-            console.print(f"[dim]Respostas para {track.path}:[/dim] {len(responses)}")
+            console.print(
+                f"[dim]Respostas para[/dim] [green]{track.path}[/green][dim]:[/dim] "
+                f"[yellow]{len(responses)}[/yellow]"
+            )
 
         if progress is not None:
             progress.advance(task_id, 1)
@@ -683,7 +686,7 @@ def _run_preview(args: argparse.Namespace) -> int:
         search_text = _format_search_text(album.album, None, album.artist)
 
         if args.verbose:
-            console.print(f"[dim]Pesquisando álbum:[/dim] {search_text}")
+            console.print(f"\n[dim]Query:[/dim] [cyan]{search_text}[/cyan]")
 
         search = client.search(
             SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
@@ -694,7 +697,8 @@ def _run_preview(args: argparse.Namespace) -> int:
 
         if args.verbose:
             console.print(
-                f"[dim]Respostas para {album.folder_name}:[/dim] {len(responses)}"
+                f"[dim]Respostas para[/dim] [green]{album.folder_name}[/green][dim]:[/dim] "
+                f"[yellow]{len(responses)}[/yellow]"
             )
 
         if progress is not None:
