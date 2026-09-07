@@ -680,6 +680,71 @@ def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> None:
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
 
 
+def _render_album_summary(items: list[BatchPreviewItem]) -> None:
+    """
+    _render_album_summary: mostra resumo de álbuns com fontes recomendadas.
+
+    input:
+        items, resultados do preview batch.
+
+    output:
+        None, imprime resumo de álbuns com melhor usuário.
+    """
+    albums: dict[str, dict[str, list]] = {}
+    album_totals: dict[str, int] = {}
+
+    for item in items:
+        if item.error or not _is_album_track(item.track.path):
+            continue
+
+        key = _album_key(item.track)
+        album_totals[key] = album_totals.get(key, 0) + 1
+
+        for match, quality in zip(item.candidates, item.quality_decisions):
+            if match.accepted and quality.eligible:
+                albums.setdefault(key, {}).setdefault(
+                    match.candidate.username, []
+                ).append(item.track.path)
+                break
+
+    if not albums:
+        return
+
+    console.print()
+
+    for album_name, users in albums.items():
+        total = album_totals.get(album_name, 0)
+
+        if total == 0:
+            continue
+
+        ranked = []
+
+        for username, matched_paths in users.items():
+            count = len(matched_paths)
+            coverage = count / total
+
+            if coverage >= 0.5:
+                ranked.append((username, count, coverage))
+
+        ranked.sort(key=lambda x: x[2], reverse=True)
+
+        if ranked:
+            best_user, best_count, best_coverage = ranked[0]
+            pct = int(best_coverage * 100)
+            console.print(
+                f"💿 [bold]{album_name}[/bold]: [green]{best_user}[/green] "
+                f"tem [yellow]{best_count}/{total}[/yellow] faixas "
+                f"({pct}%) — fonte recomendada"
+            )
+        else:
+            best_count = max(len(p) for p in users.values()) if users else 0
+            console.print(
+                f"💿 [bold]{album_name}[/bold]: melhor fonte tem "
+                f"[yellow]{best_count}/{total}[/yellow] faixas (<50%)"
+            )
+
+
 def _run_preview(args: argparse.Namespace) -> int:
     """
     _run_preview: executa preview batch offline ou online.
@@ -790,6 +855,7 @@ def _run_preview(args: argparse.Namespace) -> int:
             client.close()
 
     _render_preview(items)
+    _render_album_summary(items)
 
     plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
     _save_batch_plan(plan_path, items)
