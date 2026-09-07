@@ -38,13 +38,17 @@ class ConnectionReport(BaseModel):
 
 class MusicTrack(BaseModel):
     path: str
-    format: str = "mp3"
+    format: str = "unknown"
+    codec: str | None = None
     title: str | None = None
     artist: str | None = None
     album: str | None = None
     track_number: int | None = None
     duration_seconds: float | None = None
     bitrate_kbps: int | None = None
+    sample_rate_hz: int | None = None
+    channels: int | None = None
+    lossless: bool | None = None
     missing_metadata: list[str] = Field(default_factory=list)
 
 
@@ -72,6 +76,7 @@ class SearchCandidate(BaseModel):
     duration_seconds: float | None = None
     bitrate_kbps: int | None = Field(default=None, ge=0)
     format: str | None = None
+    lossless: bool | None = None
 
 
 class MatchResult(BaseModel):

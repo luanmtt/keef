@@ -9,77 +9,129 @@ from keef.models import MusicTrack
 class FakeInfo:
     length = 210.5
     bitrate = 320000
+    sample_rate = 44100
+    channels = 2
 
 
 class FakeAudio:
     info = FakeInfo()
     tags = {
-        "TIT2": ["Blue"],
-        "TPE1": ["Artist"],
-        "TALB": ["Album"],
-        "TRCK": ["1/10"],
+        "title": ["Blue"],
+        "artist": ["Artist"],
+        "album": ["Album"],
+        "tracknumber": ["1/10"],
     }
+    __class__ = type("MP3", (), {})
 
 
 class EmptyAudio(FakeAudio):
     tags = {}
+    __class__ = type("MP3", (), {})
 
 
-def test_read_mp3_extracts_metadata(monkeypatch) -> None:
+class FakeFlacAudio(FakeAudio):
+    tags = {
+        "title": ["Green"],
+        "artist": ["Flac Artist"],
+        "album": ["Flac Album"],
+        "tracknumber": ["3"],
+    }
+    __class__ = type("FLAC", (), {})
+
+
+def _make_mutagen_stub(audio: object):
     """
-    test_read_mp3_extracts_metadata: verifica leitura das tags.
+    _make_mutagen_stub: cria stub para MutagenFile.
 
     input:
-        objeto MP3 simulado com tags e propriedades técnicas.
+        audio, instância de áudio simulada.
+
+    output:
+        function, lambda que retorna o áudio simulado.
+    """
+    return lambda path, easy=True: audio
+
+
+def test_read_audio_extracts_metadata(monkeypatch) -> None:
+    """
+    test_read_audio_extracts_metadata: verifica leitura das tags.
+
+    input:
+        objeto de áudio simulado com tags e propriedades técnicas.
 
     output:
         None, teste aprovado quando MusicTrack contém os dados esperados.
     """
-    monkeypatch.setattr(keef.music, "MP3", lambda path: FakeAudio())
+    monkeypatch.setattr(keef.music, "MutagenFile", _make_mutagen_stub(FakeAudio()))
 
-    track = keef.music.read_mp3(Path("music.mp3"))
+    track = keef.music.read_audio(Path("music.mp3"))
 
     assert track == MusicTrack(
         path="music.mp3",
+        format="mp3",
+        codec="MP3",
         title="Blue",
         artist="Artist",
         album="Album",
         track_number=1,
-        duration_seconds=210.5,
+        duration_seconds=210.0,
         bitrate_kbps=320,
+        sample_rate_hz=44100,
+        channels=2,
+        lossless=False,
     )
 
 
-def test_read_mp3_reports_missing_metadata(monkeypatch) -> None:
+def test_read_audio_detects_lossless(monkeypatch) -> None:
     """
-    test_read_mp3_reports_missing_metadata: identifica tags ausentes.
+    test_read_audio_detects_lossless: identifica FLAC como lossless.
 
     input:
-        objeto MP3 simulado sem tags.
+        objeto FLAC simulado.
+
+    output:
+        None, teste aprovado quando lossless é True.
+    """
+    monkeypatch.setattr(keef.music, "MutagenFile", _make_mutagen_stub(FakeFlacAudio()))
+
+    track = keef.music.read_audio(Path("music.flac"))
+
+    assert track.format == "flac"
+    assert track.codec == "FLAC"
+    assert track.lossless is True
+    assert track.bitrate_kbps == 320
+
+
+def test_read_audio_reports_missing_metadata(monkeypatch) -> None:
+    """
+    test_read_audio_reports_missing_metadata: identifica tags ausentes.
+
+    input:
+        objeto de áudio simulado sem tags.
 
     output:
         None, teste aprovado quando os nomes ausentes são listados.
     """
-    monkeypatch.setattr(keef.music, "MP3", lambda path: EmptyAudio())
+    monkeypatch.setattr(keef.music, "MutagenFile", _make_mutagen_stub(EmptyAudio()))
 
-    track = keef.music.read_mp3(Path("music.mp3"))
+    track = keef.music.read_audio(Path("music.mp3"))
 
     assert track.missing_metadata == ["title", "artist", "album", "track_number"]
 
 
-def test_read_mp3_uses_filename_fallback(monkeypatch) -> None:
+def test_read_audio_uses_filename_fallback(monkeypatch) -> None:
     """
-    test_read_mp3_uses_filename_fallback: usa nome estruturado sem tags.
+    test_read_audio_uses_filename_fallback: usa nome estruturado sem tags.
 
     input:
-        MP3 sem tags com nome contendo faixa, artista e título.
+        áudio sem tags com nome contendo faixa, artista e título.
 
     output:
         None, teste aprovado quando metadados básicos são recuperados.
     """
-    monkeypatch.setattr(keef.music, "MP3", lambda path: EmptyAudio())
+    monkeypatch.setattr(keef.music, "MutagenFile", _make_mutagen_stub(EmptyAudio()))
 
-    track = keef.music.read_mp3(Path("02. Brent Faiyaz - LOOSE CHANGE.mp3"))
+    track = keef.music.read_audio(Path("02. Brent Faiyaz - LOOSE CHANGE.mp3"))
 
     assert track.track_number == 2
     assert track.artist == "Brent Faiyaz"
@@ -87,9 +139,9 @@ def test_read_mp3_uses_filename_fallback(monkeypatch) -> None:
     assert track.missing_metadata == ["album"]
 
 
-def test_try_read_mp3_returns_error_for_missing_file() -> None:
+def test_try_read_audio_returns_error_for_missing_file() -> None:
     """
-    test_try_read_mp3_returns_error_for_missing_file: trata caminho ausente.
+    test_try_read_audio_returns_error_for_missing_file: trata caminho ausente.
 
     input:
         caminho que não existe.
@@ -97,39 +149,62 @@ def test_try_read_mp3_returns_error_for_missing_file() -> None:
     output:
         None, teste aprovado quando uma mensagem de erro é retornada.
     """
-    result = keef.music.try_read_mp3(Path("missing.mp3"))
+    result = keef.music.try_read_audio(Path("missing.mp3"))
 
     assert isinstance(result, str)
     assert "Arquivo não encontrado" in result
 
 
-def test_read_mp3_propagates_invalid_file_error(monkeypatch, tmp_path) -> None:
+def test_try_read_audio_propagates_invalid_file_error(monkeypatch, tmp_path) -> None:
     """
-    test_read_mp3_propagates_invalid_file_error: preserva falha do parser.
+    test_try_read_audio_propagates_invalid_file_error: preserva falha do parser.
 
     input:
-        parser MP3 simulado que lança erro.
+        parser simulado que lança erro.
 
     output:
-        None, teste aprovado quando o erro é convertido por try_read_mp3.
+        None, teste aprovado quando o erro é convertido por try_read_audio.
     """
-    def invalid_mp3(path: Path):
+    def invalid_audio(path: Path, easy: bool = True):
         """
-        invalid_mp3: simula arquivo MP3 inválido.
+        invalid_audio: simula arquivo de áudio inválido.
 
         input:
             path, caminho recebido pelo parser.
+            easy, modo de parsing easy.
 
         output:
             None, sempre lança uma exceção de leitura.
         """
-        raise OSError("invalid mp3")
+        raise OSError("invalid audio")
 
-    monkeypatch.setattr(keef.music, "MP3", invalid_mp3)
+    monkeypatch.setattr(keef.music, "MutagenFile", invalid_audio)
     invalid_path = tmp_path / "invalid.mp3"
     invalid_path.touch()
 
-    result = keef.music.try_read_mp3(invalid_path)
+    result = keef.music.try_read_audio(invalid_path)
 
     assert isinstance(result, str)
     assert "Não foi possível ler" in result
+
+
+def test_read_audio_returns_unknown_when_detection_fails(monkeypatch, tmp_path) -> None:
+    """
+    test_read_audio_returns_unknown_when_detection_fails: rejeita formato não reconhecido.
+
+    input:
+        parser simulado que retorna None.
+
+    output:
+        None, teste aprovado quando try_read_audio retorna mensagem de erro.
+    """
+    monkeypatch.setattr(keef.music, "MutagenFile", lambda path, easy=True: None)
+    unknown_path = tmp_path / "unknown.bin"
+    unknown_path.write_bytes(b"not audio")
+
+    result = keef.music.try_read_audio(unknown_path)
+
+    assert isinstance(result, str)
+    assert "formato de áudio não reconhecido" in result
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

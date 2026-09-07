@@ -13,12 +13,12 @@ def test_scan_library_recurses_and_keeps_errors(monkeypatch, tmp_path) -> None:
     test_scan_library_recurses_and_keeps_errors: verifica scan recursivo.
 
     input:
-        diretório com MP3s válidos, inválidos e arquivos ignorados.
+        diretório com áudios válidos, inválidos e arquivos não-audio.
 
     output:
         None, teste aprovado quando sucessos e erros são separados.
     """
-    valid_path = tmp_path / "album" / "valid.mp3"
+    valid_path = tmp_path / "album" / "valid.flac"
     invalid_path = tmp_path / "broken.mp3"
     ignored_path = tmp_path / "cover.jpg"
     valid_path.parent.mkdir()
@@ -34,20 +34,24 @@ def test_scan_library_recurses_and_keeps_errors(monkeypatch, tmp_path) -> None:
             path, caminho recebido pelo scanner.
 
         output:
-            MusicTrack ou str, sucesso para valid.mp3 e erro para os demais.
+            MusicTrack ou str, sucesso para valid.flac e erro para os demais.
         """
         if path == valid_path:
-            return MusicTrack(path=str(path), title="Blue")
+            return MusicTrack(path=str(path), title="Blue", format="flac")
 
-        return "MP3 inválido"
+        return "áudio inválido"
 
-    monkeypatch.setattr(keef.library, "try_read_mp3", fake_reader)
+    monkeypatch.setattr(keef.library, "try_read_audio", fake_reader)
 
     result = keef.library.scan_library(tmp_path)
 
     assert len(result.tracks) == 1
     assert result.tracks[0].title == "Blue"
-    assert result.errors == [{"path": str(invalid_path), "error": "MP3 inválido"}]
+    assert result.tracks[0].path == "album/valid.flac"
+    assert result.errors == [
+        {"path": "broken.mp3", "error": "áudio inválido"},
+        {"path": "cover.jpg", "error": "áudio inválido"},
+    ]
 
 
 def test_scan_library_rejects_missing_directory(tmp_path) -> None:
@@ -62,3 +66,6 @@ def test_scan_library_rejects_missing_directory(tmp_path) -> None:
     """
     with pytest.raises(NotADirectoryError):
         keef.library.scan_library(tmp_path / "missing")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

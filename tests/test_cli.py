@@ -254,7 +254,7 @@ def test_install_command_dry_run_does_not_request_download(monkeypatch, tmp_path
         """
         return fake_client
 
-    monkeypatch.setattr(keef, "try_read_mp3", read_track)
+    monkeypatch.setattr(keef, "try_read_audio", read_track)
     monkeypatch.setattr(keef, "SlskdClient", build_install_client)
 
     exit_code = keef._run_install(
@@ -349,7 +349,7 @@ def test_install_command_requests_download_after_confirmation(monkeypatch, tmp_p
         """
         return True
 
-    monkeypatch.setattr(keef, "try_read_mp3", read_track)
+    monkeypatch.setattr(keef, "try_read_audio", read_track)
     monkeypatch.setattr(keef, "SlskdClient", build_install_client)
     monkeypatch.setattr(keef.Confirm, "ask", confirm_download)
 

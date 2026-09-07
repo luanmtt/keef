@@ -56,6 +56,7 @@ def test_config_persists_explicit_url(monkeypatch, tmp_path) -> None:
     """
     config_path = tmp_path / "config.json"
     monkeypatch.setattr(keef.config, "CONFIG_PATH", config_path)
+    monkeypatch.delenv("KEEF_SLSKD_URL", raising=False)
 
     first = SlskdConfig.from_sources(
         url="http://slskd.local:5030",

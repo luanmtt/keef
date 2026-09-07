@@ -12,7 +12,7 @@ from keef.models import (
     QualityPolicy,
     SearchCandidate,
 )
-from keef.quality import evaluate_mp3_quality
+from keef.quality import evaluate_candidate_quality
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -42,7 +42,7 @@ def preview_batch(
     input:
         report, tracks carregadas do relatório.
         candidate_provider, função sequencial de pesquisa.
-        policy, regra de qualidade MP3.
+        policy, regra de qualidade do candidato.
         target_kbps, bitrate alvo opcional.
 
     output:
@@ -55,7 +55,7 @@ def preview_batch(
             candidates = candidate_provider(track)
             matches = [score_candidate(track, candidate) for candidate in candidates]
             decisions = [
-                evaluate_mp3_quality(track, match.candidate, policy, target_kbps)
+                evaluate_candidate_quality(track, match.candidate, policy, target_kbps)
                 for match in matches
             ]
             preview.append(

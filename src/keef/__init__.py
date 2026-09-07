@@ -13,7 +13,7 @@ from keef.batch import load_metadata_report, preview_batch
 from keef.library import scan_library
 from keef.matching import candidates_from_responses, score_candidate
 from keef.models import ConnectionReport, QualityPolicy, SearchRequest
-from keef.music import try_read_mp3
+from keef.music import try_read_audio
 from keef.outputs import create_output_dir, write_metadata_report
 from keef.slskd import SlskdClient
 
@@ -40,7 +40,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser(
         "install", help="pesquisa e prepara uma música para instalação"
     )
-    install_parser.add_argument("path", type=Path, help="caminho do MP3 local")
+    install_parser.add_argument("path", type=Path, help="caminho do arquivo de áudio local")
     install_parser.add_argument(
         "--staging-dir",
         type=Path,
@@ -55,7 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--url", help="URL base da API do slskd")
     install_parser.add_argument("--timeout", type=float, help="timeout em segundos")
     scan_parser = subparsers.add_parser(
-        "scan", help="lê metadados MP3 de um diretório"
+        "scan", help="lê metadados de áudio de um diretório"
     )
     scan_parser.add_argument("directory", type=Path, help="diretório da biblioteca")
     scan_parser.add_argument(
@@ -72,7 +72,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--policy",
         choices=[policy.value for policy in QualityPolicy],
         default=QualityPolicy.HIGHER.value,
-        help="política de bitrate MP3",
+        help="política de bitrate do candidato",
     )
     preview_parser.add_argument("--target-kbps", type=int, help="bitrate alvo para exact")
     preview_parser.add_argument(
@@ -242,7 +242,7 @@ def _run_install(args: argparse.Namespace) -> int:
     output:
         int, código de saída do fluxo.
     """
-    track = try_read_mp3(args.path)
+    track = try_read_audio(args.path)
 
     if isinstance(track, str):
         console.print(f"[red]{track}[/red]")

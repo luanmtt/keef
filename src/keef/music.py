@@ -1,14 +1,16 @@
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 import re
 from typing import TypedDict
 
+from mutagen import File as MutagenFile
 from mutagen import MutagenError
-from mutagen.mp3 import MP3
 
 from keef.models import MusicTrack
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LOSSLESS_FORMATS = {"aiff", "ape", "flac", "wav", "wv"}
 
 
 class FilenameMetadata(TypedDict, total=False):
@@ -17,29 +19,35 @@ class FilenameMetadata(TypedDict, total=False):
     title: str
 
 
-def _first_tag(tags: object, key: str) -> str | None:
+def _first_tag(tags: object, *keys: str) -> str | None:
     """
-    _first_tag: extrai o primeiro valor de uma tag ID3.
+    _first_tag: extrai o primeiro valor de tags comuns.
 
     input:
-        tags, coleção de tags retornada pelo Mutagen.
-        key, nome da tag procurada.
+        tags, coleção de metadados retornada pelo Mutagen.
+        keys, nomes alternativos da tag procurada.
 
     output:
         str | None, valor textual ou None quando ausente.
     """
-    if not isinstance(tags, Mapping):
+    if tags is None:
         return None
 
-    value = tags.get(key)
+    for key in keys:
+        try:
+            value = tags[key]
+        except Exception:
+            value = getattr(tags, "get", lambda *_: None)(key)
 
-    if value is None:
-        return None
+        if value is None:
+            continue
 
-    if isinstance(value, (list, tuple)):
-        return str(value[0]) if value else None
+        if isinstance(value, (list, tuple)):
+            return str(value[0]) if value else None
 
-    return str(value)
+        return str(value)
+
+    return None
 
 
 def _track_number(value: str | None) -> int | None:
@@ -66,7 +74,7 @@ def _filename_metadata(path: Path) -> FilenameMetadata:
     _filename_metadata: extrai metadados básicos do nome do arquivo.
 
     input:
-        path, caminho do arquivo MP3.
+        path, caminho do arquivo de áudio.
 
     output:
         FilenameMetadata, campos encontrados como fallback das tags.
@@ -85,24 +93,53 @@ def _filename_metadata(path: Path) -> FilenameMetadata:
         "title": match.group("title").strip(),
     }
 
-def read_mp3(path: Path) -> MusicTrack:
+
+def _quality_value(info: object, attribute: str) -> int | None:
     """
-    read_mp3: lê tags e propriedades técnicas de um MP3.
+    _quality_value: lê uma propriedade técnica opcional do stream.
 
     input:
-        path, caminho do arquivo MP3.
+        info, objeto de informações do Mutagen.
+        attribute, nome da propriedade técnica.
 
     output:
-        MusicTrack, metadados normalizados e diagnósticos de ausência.
+        int | None, valor técnico quando disponível.
     """
-    audio = MP3(path)
+    value = getattr(info, attribute, None)
+
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    return None
+
+
+def read_audio(path: Path) -> MusicTrack:
+    """
+    read_audio: detecta formato e lê metadados de um arquivo de áudio.
+
+    input:
+        path, caminho do arquivo de áudio.
+
+    output:
+        MusicTrack, metadados e qualidade normalizados.
+    """
+    audio = MutagenFile(path, easy=True)
+
+    if audio is None:
+        raise MutagenError("formato de áudio não reconhecido")
+
     tags = audio.tags
+    info = audio.info
     filename_values = _filename_metadata(path)
-    title = _first_tag(tags, "TIT2") or filename_values.get("title")
-    artist = _first_tag(tags, "TPE1") or filename_values.get("artist")
-    album = _first_tag(tags, "TALB")
-    track_number = _track_number(_first_tag(tags, "TRCK"))
+    suffix = path.suffix.lower().removeprefix(".")
+    detected_format = suffix or audio.__class__.__name__.lower()
+    title = _first_tag(tags, "title", "TIT2") or filename_values.get("title")
+    artist = _first_tag(tags, "artist", "TPE1") or filename_values.get("artist")
+    album = _first_tag(tags, "album", "TALB")
+    track_number = _track_number(_first_tag(tags, "tracknumber", "TRCK"))
     track_number = track_number or filename_values.get("track_number")
+    bitrate = _quality_value(info, "bitrate")
+    bitrate_kbps = round(bitrate / 1000) if bitrate is not None else None
     missing_metadata = [
         name
         for name, value in {
@@ -116,22 +153,40 @@ def read_mp3(path: Path) -> MusicTrack:
 
     return MusicTrack(
         path=str(path),
+        format=detected_format,
+        codec=audio.__class__.__name__,
         title=title,
         artist=artist,
         album=album,
         track_number=track_number,
-        duration_seconds=audio.info.length,
-        bitrate_kbps=round(audio.info.bitrate / 1000),
+        duration_seconds=_quality_value(info, "length"),
+        bitrate_kbps=bitrate_kbps,
+        sample_rate_hz=_quality_value(info, "sample_rate"),
+        channels=_quality_value(info, "channels"),
+        lossless=True if detected_format in LOSSLESS_FORMATS else False,
         missing_metadata=missing_metadata,
     )
 
 
-def try_read_mp3(path: Path) -> MusicTrack | str:
+def read_mp3(path: Path) -> MusicTrack:
     """
-    try_read_mp3: lê MP3 e converte falhas em diagnóstico.
+    read_mp3: mantém compatibilidade com o parser anterior.
 
     input:
-        path, caminho do arquivo MP3.
+        path, caminho de um arquivo de áudio.
+
+    output:
+        MusicTrack, metadados detectados pelo parser genérico.
+    """
+    return read_audio(path)
+
+
+def try_read_audio(path: Path) -> MusicTrack | str:
+    """
+    try_read_audio: lê áudio e converte falhas em diagnóstico.
+
+    input:
+        path, caminho do arquivo de áudio.
 
     output:
         MusicTrack ou str, metadados válidos ou mensagem de erro.
@@ -140,10 +195,23 @@ def try_read_mp3(path: Path) -> MusicTrack | str:
         return f"Arquivo não encontrado: {path}"
 
     try:
-        return read_mp3(path)
+        return read_audio(path)
     except FileNotFoundError:
         return f"Arquivo não encontrado: {path}"
     except (OSError, MutagenError) as error:
-        return f"Não foi possível ler o MP3 {path}: {error}"
+        return f"Não foi possível ler o áudio {path}: {error}"
+
+
+def try_read_mp3(path: Path) -> MusicTrack | str:
+    """
+    try_read_mp3: mantém compatibilidade com a API anterior.
+
+    input:
+        path, caminho do arquivo de áudio.
+
+    output:
+        MusicTrack ou str, resultado do parser genérico.
+    """
+    return try_read_audio(path)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
