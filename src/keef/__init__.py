@@ -44,7 +44,7 @@ def _format_search_text(
         parts.append(title)
 
     if album:
-        parts.append(f"- {album}")
+        parts.append(f" - {album}")
 
     if artist:
         parts.append(f", {artist}")
@@ -54,9 +54,9 @@ def _format_search_text(
 
 def _search_queries(
     title: str | None, album: str | None, artist: str | None
-) -> list[str]:
+) -> list[tuple[str, str]]:
     """
-    _search_queries: gera variações da query por fallback.
+    _search_queries: gera variações da query por fallback com sobrescrita.
 
     input:
         title, nome da faixa.
@@ -64,25 +64,25 @@ def _search_queries(
         artist, nome do artista.
 
     output:
-        list[str], queries ordenadas da mais específica para a mais genérica.
+        list[tuple[str, str]], (query, parte_removida) ordenadas da mais
+        específica para a mais genética.
     """
-    queries = []
+    queries: list[tuple[str, str]] = []
 
-    full = _format_search_text(title, album, artist)
+    if title and album and artist:
+        queries.append((f"{title} - {album}, {artist}", ""))
+        queries.append((f"{title} - {album}", artist))
+        queries.append((title, f"{album}, {artist}"))
+    elif title and album:
+        queries.append((f"{title} - {album}", ""))
+        queries.append((title, album))
+    elif title and artist:
+        queries.append((f"{title}, {artist}", ""))
+        queries.append((title, artist))
+    elif title:
+        queries.append((title, ""))
 
-    if full:
-        queries.append(full)
-
-    if title and album:
-        queries.append(f"{title} {album}")
-
-    if title and artist:
-        queries.append(f"{title} {artist}")
-
-    if title:
-        queries.append(title)
-
-    return list(dict.fromkeys(queries))
+    return queries
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -678,9 +678,15 @@ def _run_preview(args: argparse.Namespace) -> int:
         queries = _search_queries(track.title, track.album, track.artist)
         responses: list = []
 
-        for query in queries:
+        for query, removed in queries:
             if args.verbose:
-                console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
+                if removed:
+                    console.print(
+                        f"\n[dim]Query:[/dim] [cyan]{query}[/cyan] "
+                        f"[red](-{removed})[/red]"
+                    )
+                else:
+                    console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
 
             search = client.search(
                 SearchRequest(search_text=query, search_timeout=args.search_timeout)
@@ -724,9 +730,15 @@ def _run_preview(args: argparse.Namespace) -> int:
         queries = _search_queries(album.album, None, album.artist)
         responses: list = []
 
-        for query in queries:
+        for query, removed in queries:
             if args.verbose:
-                console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
+                if removed:
+                    console.print(
+                        f"\n[dim]Query:[/dim] [cyan]{query}[/cyan] "
+                        f"[red](-{removed})[/red]"
+                    )
+                else:
+                    console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
 
             search = client.search(
                 SearchRequest(search_text=query, search_timeout=args.search_timeout)
