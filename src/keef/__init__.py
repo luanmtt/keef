@@ -24,6 +24,34 @@ from keef.slskd import SlskdClient
 console = Console()
 
 
+def _format_search_text(
+    title: str | None, album: str | None, artist: str | None
+) -> str:
+    """
+    _format_search_text: monta texto de pesquisa no formato título - álbum, artista.
+
+    input:
+        title, nome da faixa.
+        album, nome do álbum.
+        artist, nome do artista.
+
+    output:
+        str, texto formatado para pesquisa no Soulseek.
+    """
+    parts = []
+
+    if title:
+        parts.append(title)
+
+    if album:
+        parts.append(f"- {album}")
+
+    if artist:
+        parts.append(f", {artist}")
+
+    return "".join(parts)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """
     _build_parser: cria o parser da CLI.
@@ -614,9 +642,7 @@ def _run_preview(args: argparse.Namespace) -> int:
 
             return []
 
-        search_text = " ".join(
-            value for value in [track.artist, track.title, track.album] if value
-        )
+        search_text = _format_search_text(track.title, track.album, track.artist)
 
         if args.verbose:
             console.print(f"[dim]Pesquisando:[/dim] {search_text}")
@@ -654,9 +680,7 @@ def _run_preview(args: argparse.Namespace) -> int:
 
             return []
 
-        search_text = " ".join(
-            value for value in [album.artist, album.album] if value
-        )
+        search_text = _format_search_text(album.album, None, album.artist)
 
         if args.verbose:
             console.print(f"[dim]Pesquisando álbum:[/dim] {search_text}")
