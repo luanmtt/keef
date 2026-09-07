@@ -74,3 +74,45 @@ def test_preview_batch_preserves_item_errors() -> None:
     assert len(result) == 2
     assert result[0].quality_decisions[0].eligible is True
     assert result[1].error == "falha de pesquisa"
+
+
+def test_preview_batch_honors_search_delay(monkeypatch) -> None:
+    """
+    test_preview_batch_honors_search_delay: respeita pausa entre pesquisas.
+
+    input:
+        duas tracks e provider vazio com delay zero (para não dormir no teste).
+
+    output:
+        None, teste aprovado quando delay não é aplicado com valor zero.
+    """
+    tracks = [
+        MusicTrack(path="a.mp3", title="A", bitrate_kbps=192),
+        MusicTrack(path="b.mp3", title="B", bitrate_kbps=192),
+    ]
+    calls = []
+
+    def provider(track: MusicTrack) -> list[SearchCandidate]:
+        """
+        provider: registra chamadas sem retornar candidatos.
+
+        input:
+            track, música que será pesquisada.
+
+        output:
+            list[SearchCandidate], lista vazia.
+        """
+        calls.append(track.path)
+        return []
+
+    from keef.models import MetadataReport
+
+    result = preview_batch(
+        MetadataReport(tracks=tracks),
+        provider,
+        QualityPolicy.HIGHER,
+        search_delay_seconds=0.0,
+    )
+
+    assert len(result) == 2
+    assert calls == ["a.mp3", "b.mp3"]

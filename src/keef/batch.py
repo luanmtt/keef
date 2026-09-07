@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -35,6 +36,7 @@ def preview_batch(
     candidate_provider: Callable[[MusicTrack], list[SearchCandidate]],
     policy: QualityPolicy,
     target_kbps: int | None = None,
+    search_delay_seconds: float = 1.0,
 ) -> list[BatchPreviewItem]:
     """
     preview_batch: cria decisões batch sem iniciar downloads.
@@ -44,13 +46,14 @@ def preview_batch(
         candidate_provider, função sequencial de pesquisa.
         policy, regra de qualidade do candidato.
         target_kbps, bitrate alvo opcional.
+        search_delay_seconds, pausa entre pesquisas para evitar 409 do slskd.
 
     output:
         list[BatchPreviewItem], resultados individuais e erros preservados.
     """
     preview = []
 
-    for track in report.tracks:
+    for index, track in enumerate(report.tracks):
         try:
             candidates = candidate_provider(track)
             matches = [score_candidate(track, candidate) for candidate in candidates]
@@ -67,6 +70,9 @@ def preview_batch(
             )
         except (httpx.HTTPError, OSError, TypeError, ValueError) as error:
             preview.append(BatchPreviewItem(track=track, error=str(error)))
+
+        if index < len(report.tracks) - 1 and search_delay_seconds > 0:
+            time.sleep(search_delay_seconds)
 
     return preview
 

@@ -84,6 +84,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="timeout de cada pesquisa no slskd (segundos)",
     )
     preview_parser.add_argument(
+        "--search-delay",
+        type=float,
+        default=1.0,
+        help="pausa entre pesquisas no slskd (segundos)",
+    )
+    preview_parser.add_argument(
         "--online",
         action="store_true",
         help="pesquisa candidatos no slskd; sem isto o preview é offline",
@@ -555,6 +561,7 @@ def _run_preview(args: argparse.Namespace) -> int:
                     lambda track: candidate_provider(track, progress, task),
                     QualityPolicy(args.policy),
                     args.target_kbps,
+                    search_delay_seconds=args.search_delay,
                 )
         else:
             items = preview_batch(
@@ -562,6 +569,7 @@ def _run_preview(args: argparse.Namespace) -> int:
                 candidate_provider,
                 QualityPolicy(args.policy),
                 args.target_kbps,
+                search_delay_seconds=args.search_delay,
             )
     finally:
         if client is not None:
