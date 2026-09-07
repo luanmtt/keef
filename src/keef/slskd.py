@@ -1,6 +1,7 @@
 from typing import Any
 from uuid import UUID
 from urllib.parse import quote
+import time
 
 import httpx
 
@@ -147,6 +148,39 @@ class SlskdClient:
             raise TypeError("As respostas da pesquisa não são uma lista de objetos.")
 
         return responses
+
+    def wait_for_search_responses(
+        self,
+        search_id: UUID,
+        min_responses: int = 1,
+        poll_seconds: float = 1.0,
+        max_wait_seconds: float = 15.0,
+    ) -> list[dict[str, Any]]:
+        """
+        wait_for_search_responses: aguarda respostas de uma pesquisa ativa.
+
+        input:
+            search_id, identificador UUID da pesquisa.
+            min_responses, número mínimo de respostas desejado.
+            poll_seconds, intervalo entre consultas.
+            max_wait_seconds, tempo máximo de espera.
+
+        output:
+            list[dict[str, Any]], respostas acumuladas até o critério ou timeout.
+        """
+        deadline = time.monotonic() + max_wait_seconds
+
+        while True:
+            responses = self.get_search_responses(search_id)
+
+            if len(responses) >= min_responses:
+                return responses
+
+            if time.monotonic() >= deadline:
+                return responses
+
+            if poll_seconds > 0:
+                time.sleep(poll_seconds)
 
     def enqueue_download(
         self,

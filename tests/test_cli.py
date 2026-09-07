@@ -1,3 +1,4 @@
+import json
 from argparse import Namespace
 from io import StringIO
 from pathlib import Path
@@ -432,5 +433,117 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
     assert exit_code == 0
     assert "Tracks lidas: 1" in output.getvalue()
     assert "metadata.json" in output.getvalue()
+
+
+class FakePreviewClient(FakeClient):
+    def __init__(self, report: ConnectionReport, search_result: SearchResult) -> None:
+        """
+        __init__: prepara cliente simulado para preview.
+
+        input:
+            report, relatório fixo de conexão.
+            search_result, resposta fixa de pesquisa.
+
+        output:
+            None, inicializa o dublê com wait_for_search_responses.
+        """
+        super().__init__(report)
+        self.search_result = search_result
+
+    def search(self, request) -> SearchResult:
+        """
+        search: retorna pesquisa simulada.
+
+        input:
+            request, solicitação de pesquisa do keef.
+
+        output:
+            SearchResult, resultado fixo de pesquisa.
+        """
+        return self.search_result
+
+    def wait_for_search_responses(self, search_id) -> list[dict]:
+        """
+        wait_for_search_responses: retorna respostas simuladas.
+
+        input:
+            search_id, identificador da pesquisa.
+
+        output:
+            list[dict], respostas incluídas na pesquisa.
+        """
+        return self.search_result.responses
+
+
+def test_preview_online_saves_batch_plan(monkeypatch, tmp_path) -> None:
+    """
+    test_preview_online_saves_batch_plan: verifica preview online e saída JSON.
+
+    input:
+        relatório com uma track e candidato remoto elegível.
+
+    output:
+        None, teste aprovado quando plano JSON é salvo.
+    """
+    report_path = tmp_path / "metadata.json"
+    report_path.write_text(
+        '{"tracks": [{"path": "blue.mp3", "title": "Blue", "artist": "Artist", "bitrate_kbps": 192}]}'
+    )
+    output_path = tmp_path / "plan.json"
+    search_result = SearchResult.model_validate(
+        {
+            "id": "12345678-1234-5678-1234-567812345678",
+            "responses": [
+                {
+                    "username": "alice",
+                    "files": [
+                        {
+                            "filename": "Artist - Blue.mp3",
+                            "size": 1_000,
+                            "title": "Blue",
+                            "artist": "Artist",
+                            "bitrate": 320,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    def build_client(config) -> FakePreviewClient:
+        """
+        build_client: retorna cliente simulado.
+
+        input:
+            config, configuração recebida pela CLI.
+
+        output:
+            FakePreviewClient, cliente controlado pelo teste.
+        """
+        return FakePreviewClient(
+            ConnectionReport(reachable=True, authenticated=True),
+            search_result,
+        )
+
+    monkeypatch.setattr(keef, "SlskdClient", build_client)
+
+    exit_code = keef._run_preview(
+        Namespace(
+            report=report_path,
+            policy="higher",
+            target_kbps=None,
+            online=True,
+            output=output_path,
+            url="http://localhost:5030",
+            timeout=None,
+        )
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+    plan = json.loads(output_path.read_text())
+    assert len(plan) == 1
+    assert plan[0]["username"] == "alice"
+    assert plan[0]["filename"] == "Artist - Blue.mp3"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

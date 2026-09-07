@@ -245,4 +245,48 @@ def test_get_download_status_uses_encoded_username() -> None:
 
     assert status["state"] == "queued"
 
+
+def test_wait_for_search_responses_polls_until_min_responses() -> None:
+    """
+    test_wait_for_search_responses_polls_until_min_responses: aguarda resultados.
+
+    input:
+        endpoint que retorna vazio na primeira chamada e depois uma resposta.
+
+    output:
+        None, teste aprovado quando polling acumula respostas.
+    """
+    search_id = "12345678-1234-5678-1234-567812345678"
+    call_count = {"value": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """
+        handler: simula respostas aparecendo ao longo do tempo.
+
+        input:
+            request, requisição HTTP.
+
+        output:
+            httpx.Response, lista vazia ou com resposta.
+        """
+        call_count["value"] += 1
+
+        if call_count["value"] == 1:
+            return httpx.Response(200, json=[])
+
+        return httpx.Response(200, json=[{"username": "alice", "files": []}])
+
+    client = build_client(handler)
+
+    try:
+        responses = client.wait_for_search_responses(
+            UUID(search_id), min_responses=1, poll_seconds=0, max_wait_seconds=1
+        )
+    finally:
+        client.close()
+
+    assert len(responses) == 1
+    assert call_count["value"] == 2
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

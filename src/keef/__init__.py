@@ -1,10 +1,12 @@
 import argparse
+import json
 import os
 from pathlib import Path
 
 import httpx
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress
 from rich.prompt import Confirm
 from rich.table import Table
 
@@ -79,6 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--online",
         action="store_true",
         help="pesquisa candidatos no slskd; sem isto o preview é offline",
+    )
+    preview_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        help="caminho para salvar o plano batch aprovado em JSON",
     )
     preview_parser.add_argument("--url", help="URL base da API do slskd")
     preview_parser.add_argument("--timeout", type=float, help="timeout em segundos")
@@ -419,6 +427,39 @@ def _render_preview(items) -> None:
     console.print(table)
 
 
+def _save_batch_plan(path: Path, items: list) -> None:
+    """
+    _save_batch_plan: persiste candidatos aceitos para instalação futura.
+
+    input:
+        path, caminho do arquivo JSON de saída.
+        items, resultados do preview batch.
+
+    output:
+        None, escreve o plano no disco.
+    """
+    plan = []
+
+    for item in items:
+        if item.error:
+            continue
+
+        for match, quality in zip(item.candidates, item.quality_decisions):
+            if match.accepted and quality.eligible:
+                plan.append(
+                    {
+                        "local_path": item.track.path,
+                        "username": match.candidate.username,
+                        "filename": match.candidate.filename,
+                        "size": match.candidate.size,
+                        "score": match.score,
+                    }
+                )
+                break
+
+    path.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+
+
 def _run_preview(args: argparse.Namespace) -> int:
     """
     _run_preview: executa preview batch offline ou online.
@@ -451,37 +492,62 @@ def _run_preview(args: argparse.Namespace) -> int:
             console.print(f"[red]Configuração inválida:[/red] {error}")
             return 2
 
-    def candidate_provider(track) -> list:
+    def candidate_provider(track, progress=None, task_id=None) -> list:
         """
         candidate_provider: pesquisa candidatos para uma track.
 
         input:
             track, música que será pesquisada.
+            progress, instância do Rich Progress opcional.
+            task_id, identificador da tarefa de progresso.
 
         output:
             list, candidatos normalizados ou lista vazia no modo offline.
         """
         if client is None:
+            if progress is not None:
+                progress.advance(task_id, 1)
+
             return []
 
         search_text = " ".join(value for value in [track.artist, track.title] if value)
         search = client.search(SearchRequest(search_text=search_text))
-        responses = search.responses or client.get_search_responses(search.id)
+        responses = search.responses or client.wait_for_search_responses(search.id)
+
+        if progress is not None:
+            progress.advance(task_id, 1)
 
         return candidates_from_responses(responses)
 
     try:
-        items = preview_batch(
-            report,
-            candidate_provider,
-            QualityPolicy(args.policy),
-            args.target_kbps,
-        )
+        if args.online:
+            with Progress(console=console) as progress:
+                task = progress.add_task(
+                    "Pesquisando candidatos", total=len(report.tracks)
+                )
+
+                items = preview_batch(
+                    report,
+                    lambda track: candidate_provider(track, progress, task),
+                    QualityPolicy(args.policy),
+                    args.target_kbps,
+                )
+        else:
+            items = preview_batch(
+                report,
+                candidate_provider,
+                QualityPolicy(args.policy),
+                args.target_kbps,
+            )
     finally:
         if client is not None:
             client.close()
 
     _render_preview(items)
+
+    if args.output is not None:
+        _save_batch_plan(args.output, items)
+        console.print(f"[cyan]Plano salvo em:[/cyan] {args.output}")
 
     return 0
 
