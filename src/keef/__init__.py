@@ -11,10 +11,10 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from keef.config import SlskdConfig
-from keef.batch import load_metadata_report, preview_batch
+from keef.batch import load_metadata_report, preview_albums, preview_batch
 from keef.library import scan_library
 from keef.matching import candidates_from_responses, score_candidate
-from keef.models import ConnectionReport, QualityPolicy, SearchRequest
+from keef.models import AlbumMatchResult, ConnectionReport, QualityPolicy, SearchRequest
 from keef.music import try_read_audio
 from keef.outputs import create_output_dir, write_metadata_report
 from keef.slskd import SlskdClient
@@ -374,6 +374,7 @@ def _render_scan_summary(result, report_path: Path) -> None:
     """
     console.print(
         f"[green]Tracks lidas:[/green] {len(result.tracks)}\n"
+        f"[green]Álbuns lidos:[/green] {len(result.albums)}\n"
         f"[yellow]Erros:[/yellow] {len(result.errors)}\n"
         f"[cyan]Relatório:[/cyan] {report_path}"
     )
@@ -396,7 +397,9 @@ def _run_scan(args: argparse.Namespace) -> int:
         return 2
 
     output_dir = create_output_dir(args.output_dir)
-    report_path = write_metadata_report(output_dir, result.tracks, result.errors)
+    report_path = write_metadata_report(
+        output_dir, result.tracks, result.errors, result.albums
+    )
     _render_scan_summary(result, report_path)
 
     if not result.tracks:
@@ -444,13 +447,65 @@ def _render_preview(items) -> None:
     console.print(table)
 
 
-def _save_batch_plan(path: Path, items: list) -> None:
+def _render_album_preview(album_results: list[AlbumMatchResult]) -> None:
+    """
+    _render_album_preview: apresenta decisões do preview de álbuns.
+
+    input:
+        album_results, resultados do preview de álbuns.
+
+    output:
+        None, imprime tabela Rich no console.
+    """
+    if not album_results:
+        return
+
+    table = Table(title="Preview álbuns")
+    table.add_column("Álbum", no_wrap=True)
+    table.add_column("Usuário", no_wrap=True)
+    table.add_column("Faixas", no_wrap=True)
+    table.add_column("Score", no_wrap=True)
+    table.add_column("Decisão", no_wrap=True)
+
+    for result in album_results:
+        if result.error:
+            table.add_row(
+                result.album.folder_name, "-", "-", "-", f"erro: {result.error}"
+            )
+            continue
+
+        if not result.matches:
+            table.add_row(
+                result.album.folder_name, "-", "-", "-", "sem candidatos"
+            )
+            continue
+
+        best = result.matches[0]
+        matched = len(best.matched_files)
+        total = result.album.track_count
+        accepted = "aceito" if best.accepted else "rejeitado"
+
+        table.add_row(
+            result.album.folder_name,
+            best.username,
+            f"{matched}/{total}",
+            f"{best.overall_score:.2f}",
+            accepted,
+        )
+
+    console.print(table)
+
+
+def _save_batch_plan(
+    path: Path, items: list, album_results: list[AlbumMatchResult] | None = None
+) -> None:
     """
     _save_batch_plan: persiste candidatos aceitos para instalação futura.
 
     input:
         path, caminho do arquivo JSON de saída.
-        items, resultados do preview batch.
+        items, resultados do preview batch (tracks individuais).
+        album_results, resultados do preview de álbuns (opcional).
 
     output:
         None, escreve o plano no disco.
@@ -465,6 +520,7 @@ def _save_batch_plan(path: Path, items: list) -> None:
             if match.accepted and quality.eligible:
                 plan.append(
                     {
+                        "type": "track",
                         "local_path": item.track.path,
                         "username": match.candidate.username,
                         "filename": match.candidate.filename,
@@ -473,6 +529,37 @@ def _save_batch_plan(path: Path, items: list) -> None:
                     }
                 )
                 break
+
+    for album_result in album_results or []:
+        if album_result.error:
+            continue
+
+        best = next(
+            (m for m in album_result.matches if m.accepted), None
+        )
+
+        if best is None:
+            continue
+
+        plan.append(
+            {
+                "type": "album",
+                "folder_name": album_result.album.folder_name,
+                "artist": album_result.album.artist,
+                "album": album_result.album.album,
+                "username": best.username,
+                "files": [
+                    {
+                        "local_path": m.local_track.path,
+                        "remote_filename": m.remote_filename,
+                        "remote_size": m.remote_size,
+                        "score": m.score,
+                    }
+                    for m in best.matched_files
+                ],
+                "overall_score": best.overall_score,
+            }
+        )
 
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
 
@@ -549,16 +636,66 @@ def _run_preview(args: argparse.Namespace) -> int:
 
         return candidates_from_responses(responses)
 
+    def album_search_provider(album, progress=None, task_id=None) -> list:
+        """
+        album_search_provider: pesquisa respostas brutas para um álbum.
+
+        input:
+            album, scan do álbum local.
+            progress, instância do Rich Progress opcional.
+            task_id, identificador da tarefa de progresso.
+
+        output:
+            list, respostas brutas do slskd ou lista vazia no modo offline.
+        """
+        if client is None:
+            if progress is not None:
+                progress.advance(task_id, 1)
+
+            return []
+
+        search_text = " ".join(
+            value for value in [album.artist, album.album] if value
+        )
+
+        if args.verbose:
+            console.print(f"[dim]Pesquisando álbum:[/dim] {search_text}")
+
+        search = client.search(
+            SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
+        )
+        responses = search.responses or client.wait_for_search_responses(
+            search.id, max_wait_seconds=args.search_timeout
+        )
+
+        if args.verbose:
+            console.print(
+                f"[dim]Respostas para {album.folder_name}:[/dim] {len(responses)}"
+            )
+
+        if progress is not None:
+            progress.advance(task_id, 1)
+
+        return responses
+
     try:
-        if args.online:
+        total_tasks = len(report.tracks) + len(report.albums)
+
+        if args.online and total_tasks > 0:
             with Progress(console=console) as progress:
-                task = progress.add_task(
-                    "Pesquisando candidatos", total=len(report.tracks)
-                )
+                task = progress.add_task("Pesquisando", total=total_tasks)
 
                 items = preview_batch(
                     report,
                     lambda track: candidate_provider(track, progress, task),
+                    QualityPolicy(args.policy),
+                    args.target_kbps,
+                    search_delay_seconds=args.search_delay,
+                )
+
+                album_results = preview_albums(
+                    report.albums,
+                    lambda album: album_search_provider(album, progress, task),
                     QualityPolicy(args.policy),
                     args.target_kbps,
                     search_delay_seconds=args.search_delay,
@@ -571,14 +708,23 @@ def _run_preview(args: argparse.Namespace) -> int:
                 args.target_kbps,
                 search_delay_seconds=args.search_delay,
             )
+
+            album_results = preview_albums(
+                report.albums,
+                album_search_provider,
+                QualityPolicy(args.policy),
+                args.target_kbps,
+                search_delay_seconds=args.search_delay,
+            )
     finally:
         if client is not None:
             client.close()
 
     _render_preview(items)
+    _render_album_preview(album_results)
 
     plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
-    _save_batch_plan(plan_path, items)
+    _save_batch_plan(plan_path, items, album_results)
     console.print(f"[cyan]Plano salvo em:[/cyan] {plan_path}")
 
     return 0

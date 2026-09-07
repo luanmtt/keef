@@ -87,11 +87,6 @@ class MatchResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
-class MetadataReport(BaseModel):
-    tracks: list[MusicTrack] = Field(default_factory=list)
-    errors: list[dict[str, str]] = Field(default_factory=list)
-
-
 class QualityPolicy(StrEnum):
     HIGHER = "higher"
     LOWER = "lower"
@@ -103,10 +98,49 @@ class QualityDecision(BaseModel):
     reason: str
 
 
+class AlbumScan(BaseModel):
+    folder_name: str
+    artist: str | None = None
+    album: str | None = None
+    tracks: list[MusicTrack] = Field(default_factory=list)
+    errors: list[dict[str, str]] = Field(default_factory=list)
+    track_count: int = 0
+
+
+class AlbumFileMatch(BaseModel):
+    local_track: MusicTrack
+    remote_filename: str
+    remote_size: int
+    score: float = Field(ge=0, le=1)
+    quality: QualityDecision
+
+
+class AlbumMatch(BaseModel):
+    username: str
+    file_count: int
+    matched_files: list[AlbumFileMatch] = Field(default_factory=list)
+    unmatched_locals: list[str] = Field(default_factory=list)
+    overall_score: float = Field(default=0.0, ge=0, le=1)
+    accepted: bool = False
+
+
+class AlbumMatchResult(BaseModel):
+    album: AlbumScan
+    matches: list[AlbumMatch] = Field(default_factory=list)
+    error: str | None = None
+
+
+class MetadataReport(BaseModel):
+    tracks: list[MusicTrack] = Field(default_factory=list)
+    albums: list[AlbumScan] = Field(default_factory=list)
+    errors: list[dict[str, str]] = Field(default_factory=list)
+
+
 class BatchPreviewItem(BaseModel):
     track: MusicTrack
     candidates: list[MatchResult] = Field(default_factory=list)
     quality_decisions: list[QualityDecision] = Field(default_factory=list)
     error: str | None = None
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

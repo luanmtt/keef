@@ -408,7 +408,7 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
         """
         return output_dir
 
-    def fake_write_report(directory, tracks, errors) -> Path:
+    def fake_write_report(directory, tracks, errors, albums=None) -> Path:
         """
         fake_write_report: simula gravação do relatório.
 

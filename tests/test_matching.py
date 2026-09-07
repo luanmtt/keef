@@ -1,5 +1,5 @@
-from keef.matching import normalize_text, score_candidate
-from keef.models import MusicTrack, SearchCandidate
+from keef.matching import match_album, normalize_text, score_candidate
+from keef.models import AlbumScan, MusicTrack, QualityPolicy, SearchCandidate
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -144,3 +144,112 @@ def test_candidates_from_responses_uses_filename_as_title() -> None:
 
     assert candidates[0].title == "Artist - Blue"
     assert candidates[0].format == "mp3"
+
+
+def test_match_album_matches_tracks_by_title() -> None:
+    """
+    test_match_album_matches_tracks_by_title: compara faixas por título.
+
+    input:
+        álbum local com 2 faixas e respostas com 2 arquivos do mesmo usuário.
+
+    output:
+        None, teste aprovado quando faixas são pareadas por título.
+    """
+    album = AlbumScan(
+        folder_name="Blonde",
+        artist="Frank Ocean",
+        album="Blonde",
+        tracks=[
+            MusicTrack(path="01 Nikes.flac", title="Nikes", artist="Frank Ocean"),
+            MusicTrack(path="02 Ivy.flac", title="Ivy", artist="Frank Ocean"),
+        ],
+        track_count=2,
+    )
+
+    responses = [
+        {
+            "username": "bob",
+            "files": [
+                {
+                    "filename": "/music/Frank Ocean - Blonde/01 Nikes.flac",
+                    "size": 50_000_000,
+                    "title": "Nikes",
+                    "artist": "Frank Ocean",
+                    "bitrate": 1411,
+                },
+                {
+                    "filename": "/music/Frank Ocean - Blonde/02 Ivy.flac",
+                    "size": 40_000_000,
+                    "title": "Ivy",
+                    "artist": "Frank Ocean",
+                    "bitrate": 1411,
+                },
+            ],
+        }
+    ]
+
+    result = match_album(album, responses, QualityPolicy.HIGHER)
+
+    assert len(result.matches) == 1
+    assert result.matches[0].username == "bob"
+    assert len(result.matches[0].matched_files) == 2
+    assert result.matches[0].overall_score > 0.8
+
+
+def test_match_album_rejects_wrong_track_count() -> None:
+    """
+    test_match_album_rejects_wrong_track_count: rejeita com contagem errada.
+
+    input:
+        álbum local com 2 faixas e resposta com 5 arquivos.
+
+    output:
+        None, teste aprovado quando usuário com contagem diferente é ignorado.
+    """
+    album = AlbumScan(
+        folder_name="Blonde",
+        artist="Frank Ocean",
+        album="Blonde",
+        tracks=[
+            MusicTrack(path="01 Nikes.flac", title="Nikes"),
+            MusicTrack(path="02 Ivy.flac", title="Ivy"),
+        ],
+        track_count=2,
+    )
+
+    responses = [
+        {
+            "username": "bob",
+            "files": [
+                {"filename": f"/music/0{i}.flac", "size": 10_000, "title": f"T{i}"}
+                for i in range(5)
+            ],
+        }
+    ]
+
+    result = match_album(album, responses, QualityPolicy.HIGHER, track_count_tolerance=1)
+
+    assert len(result.matches) == 0
+
+
+def test_match_album_returns_empty_for_no_responses() -> None:
+    """
+    test_match_album_returns_empty_for_no_responses: lida com respostas vazias.
+
+    input:
+        álbum local e lista de respostas vazia.
+
+    output:
+        None, teste aprovado quando resultado não tem matches.
+    """
+    album = AlbumScan(
+        folder_name="Test",
+        tracks=[MusicTrack(path="01.flac", title="A")],
+        track_count=1,
+    )
+
+    result = match_album(album, [], QualityPolicy.HIGHER)
+
+    assert len(result.matches) == 0
+    assert result.error is None
