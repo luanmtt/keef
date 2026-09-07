@@ -161,7 +161,7 @@ def test_search_sends_expected_payload() -> None:
         """
         assert request.method == "POST"
         assert request.url.path.endswith("/searches")
-        assert request.read() == b'{"searchText":"Artist Blue","searchTimeout":5,"responseLimit":10}'
+        assert request.read() == b'{"searchText":"Artist Blue","searchTimeout":5000,"responseLimit":10}'
 
         return httpx.Response(200, json={"id": search_id, "responses": []})
 

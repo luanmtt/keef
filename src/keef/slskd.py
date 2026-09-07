@@ -116,11 +116,14 @@ class SlskdClient:
         output:
             SearchResult, pesquisa criada pelo slskd.
         """
+        # slskd 0.26.0 trata searchTimeout como milissegundos, apesar da
+        # documentação indicar segundos. Multiplicamos por 1000 para manter a
+        # CLI em segundos e a API no formato que o slskd espera.
         payload = self._post_json(
             "/api/v0/searches",
             {
                 "searchText": request.search_text,
-                "searchTimeout": request.search_timeout,
+                "searchTimeout": request.search_timeout * 1000,
                 "responseLimit": request.response_limit,
             },
         )
