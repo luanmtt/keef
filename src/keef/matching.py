@@ -166,6 +166,59 @@ def score_candidate(
     )
 
 
+def _clean_filename_title(stem: str) -> str:
+    """
+    _clean_filename_title: remove prefixos de número de faixa do título.
+
+    input:
+        stem, nome do arquivo sem extensão.
+
+    output:
+        str, título limpo sem prefixos numéricos.
+    """
+    cleaned = re.sub(r"^\d{1,4}[\s._-]+", "", stem)
+    cleaned = re.sub(r"^[\s._-]+", "", cleaned)
+
+    return cleaned.strip() or stem
+
+
+def _title_from_filename(filename: str) -> str:
+    """
+    _title_from_filename: extrai título do nome do arquivo remoto.
+
+    input:
+        filename, caminho completo do arquivo remoto (com / ou \\).
+
+    output:
+        str, título limpo extraído do nome do arquivo.
+    """
+    normalized = filename.replace("\\", "/")
+    basename = normalized.rsplit("/", maxsplit=1)[-1]
+    stem = Path(basename).stem
+
+    return _clean_filename_title(stem)
+
+
+def _estimate_bitrate(file_data: dict[str, Any]) -> int | None:
+    """
+    _estimate_bitrate: calcula bitrate para formatos sem bitRate explícito.
+
+    input:
+        file_data, dicionário com metadados do arquivo remoto.
+
+    output:
+        int | None, bitrate estimado em kbps ou None quando impossível.
+    """
+    bit_depth = file_data.get("bitDepth")
+    sample_rate = file_data.get("sampleRate")
+
+    if isinstance(bit_depth, (int, float)) and isinstance(sample_rate, (int, float)):
+        channels = 2
+        return int(bit_depth * sample_rate * channels / 1000)
+
+    return None
+
+
 def candidates_from_responses(
     responses: list[dict[str, Any]],
 ) -> list[SearchCandidate]:
@@ -200,7 +253,37 @@ def candidates_from_responses(
             title = file_data.get("title") or file_data.get("Title")
 
             if not isinstance(title, str):
-                title = Path(filename).stem
+                title = _title_from_filename(filename)
+
+            bitrate = (
+                file_data.get("bitrate")
+                or file_data.get("Bitrate")
+                or file_data.get("bitRate")
+            )
+
+            if isinstance(bitrate, (int, float)):
+                bitrate = int(bitrate)
+            else:
+                bitrate = _estimate_bitrate(file_data)
+
+            duration = (
+                file_data.get("duration")
+                or file_data.get("Length")
+                or file_data.get("length")
+            )
+
+            if isinstance(duration, (int, float)):
+                duration = float(duration)
+            else:
+                duration = None
+
+            extension = file_data.get("extension") or file_data.get("Extension")
+            fmt = None
+
+            if isinstance(extension, str) and extension:
+                fmt = extension.removeprefix(".").lower()
+            else:
+                fmt = Path(filename).suffix.removeprefix(".").lower()
 
             candidates.append(
                 SearchCandidate.model_validate(
@@ -211,11 +294,9 @@ def candidates_from_responses(
                         "title": title,
                         "artist": file_data.get("artist") or file_data.get("Artist"),
                         "album": file_data.get("album") or file_data.get("Album"),
-                        "duration_seconds": file_data.get("duration")
-                        or file_data.get("Length"),
-                        "bitrate_kbps": file_data.get("bitrate")
-                        or file_data.get("Bitrate"),
-                        "format": Path(filename).suffix.removeprefix(".").lower(),
+                        "duration_seconds": duration,
+                        "bitrate_kbps": bitrate,
+                        "format": fmt,
                     }
                 )
             )
@@ -357,7 +438,37 @@ def _candidate_from_file(
     title = file_data.get("title") or file_data.get("Title")
 
     if not isinstance(title, str):
-        title = Path(filename).stem
+        title = _title_from_filename(filename)
+
+    bitrate = (
+        file_data.get("bitrate")
+        or file_data.get("Bitrate")
+        or file_data.get("bitRate")
+    )
+
+    if isinstance(bitrate, (int, float)):
+        bitrate = int(bitrate)
+    else:
+        bitrate = _estimate_bitrate(file_data)
+
+    duration = (
+        file_data.get("duration")
+        or file_data.get("Length")
+        or file_data.get("length")
+    )
+
+    if isinstance(duration, (int, float)):
+        duration = float(duration)
+    else:
+        duration = None
+
+    extension = file_data.get("extension") or file_data.get("Extension")
+    fmt = None
+
+    if isinstance(extension, str) and extension:
+        fmt = extension.removeprefix(".").lower()
+    else:
+        fmt = Path(filename).suffix.removeprefix(".").lower()
 
     return SearchCandidate(
         username=username,
@@ -366,9 +477,9 @@ def _candidate_from_file(
         title=title,
         artist=file_data.get("artist") or file_data.get("Artist"),
         album=file_data.get("album") or file_data.get("Album"),
-        duration_seconds=file_data.get("duration") or file_data.get("Length"),
-        bitrate_kbps=file_data.get("bitrate") or file_data.get("Bitrate"),
-        format=Path(filename).suffix.removeprefix(".").lower(),
+        duration_seconds=duration,
+        bitrate_kbps=bitrate,
+        format=fmt,
     )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
