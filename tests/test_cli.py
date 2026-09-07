@@ -533,7 +533,9 @@ def test_preview_online_saves_batch_plan(monkeypatch, tmp_path) -> None:
             policy="higher",
             target_kbps=None,
             online=True,
+            search_timeout=5,
             output=output_path,
+            verbose=False,
             url="http://localhost:5030",
             timeout=None,
         )
@@ -545,5 +547,79 @@ def test_preview_online_saves_batch_plan(monkeypatch, tmp_path) -> None:
     assert len(plan) == 1
     assert plan[0]["username"] == "alice"
     assert plan[0]["filename"] == "Artist - Blue.mp3"
+
+
+def test_preview_online_saves_plan_next_to_report_by_default(monkeypatch, tmp_path) -> None:
+    """
+    test_preview_online_saves_plan_next_to_report_by_default: salva plan.json local.
+
+    input:
+        relatório em diretório temporário sem --output explícito.
+
+    output:
+        None, teste aprovado quando plan.json é criado ao lado do metadata.json.
+    """
+    report_dir = tmp_path / "batch-1"
+    report_dir.mkdir()
+    report_path = report_dir / "metadata.json"
+    report_path.write_text(
+        '{"tracks": [{"path": "blue.mp3", "title": "Blue", "artist": "Artist", "bitrate_kbps": 192}]}'
+    )
+    search_result = SearchResult.model_validate(
+        {
+            "id": "12345678-1234-5678-1234-567812345678",
+            "responses": [
+                {
+                    "username": "alice",
+                    "files": [
+                        {
+                            "filename": "Artist - Blue.mp3",
+                            "size": 1_000,
+                            "title": "Blue",
+                            "artist": "Artist",
+                            "bitrate": 320,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    def build_client(config) -> FakePreviewClient:
+        """
+        build_client: retorna cliente simulado.
+
+        input:
+            config, configuração recebida pela CLI.
+
+        output:
+            FakePreviewClient, cliente controlado pelo teste.
+        """
+        return FakePreviewClient(
+            ConnectionReport(reachable=True, authenticated=True),
+            search_result,
+        )
+
+    monkeypatch.setattr(keef, "SlskdClient", build_client)
+
+    exit_code = keef._run_preview(
+        Namespace(
+            report=report_path,
+            policy="higher",
+            target_kbps=None,
+            online=True,
+            search_timeout=5,
+            output=None,
+            verbose=False,
+            url="http://localhost:5030",
+            timeout=None,
+        )
+    )
+
+    assert exit_code == 0
+    plan_path = report_dir / "plan.json"
+    assert plan_path.exists()
+    plan = json.loads(plan_path.read_text())
+    assert len(plan) == 1
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

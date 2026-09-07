@@ -78,6 +78,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     preview_parser.add_argument("--target-kbps", type=int, help="bitrate alvo para exact")
     preview_parser.add_argument(
+        "--search-timeout",
+        type=int,
+        default=5,
+        help="timeout de cada pesquisa no slskd (segundos)",
+    )
+    preview_parser.add_argument(
         "--online",
         action="store_true",
         help="pesquisa candidatos no slskd; sem isto o preview é offline",
@@ -87,6 +93,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "-o",
         type=Path,
         help="caminho para salvar o plano batch aprovado em JSON",
+    )
+    preview_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="exibe texto de pesquisa e contagem de respostas",
     )
     preview_parser.add_argument("--url", help="URL base da API do slskd")
     preview_parser.add_argument("--timeout", type=float, help="timeout em segundos")
@@ -399,11 +410,11 @@ def _render_preview(items) -> None:
         None, imprime tabela Rich no console.
     """
     table = Table(title="Preview batch")
-    table.add_column("Arquivo local")
-    table.add_column("Candidato")
-    table.add_column("Score")
-    table.add_column("Qualidade")
-    table.add_column("Decisão")
+    table.add_column("Arquivo local", no_wrap=True)
+    table.add_column("Candidato", no_wrap=True)
+    table.add_column("Score", no_wrap=True)
+    table.add_column("Qualidade", no_wrap=True)
+    table.add_column("Decisão", no_wrap=True)
 
     for item in items:
         if item.error:
@@ -510,9 +521,22 @@ def _run_preview(args: argparse.Namespace) -> int:
 
             return []
 
-        search_text = " ".join(value for value in [track.artist, track.title] if value)
-        search = client.search(SearchRequest(search_text=search_text))
-        responses = search.responses or client.wait_for_search_responses(search.id)
+        search_text = " ".join(
+            value for value in [track.artist, track.title, track.album] if value
+        )
+
+        if args.verbose:
+            console.print(f"[dim]Pesquisando:[/dim] {search_text}")
+
+        search = client.search(
+            SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
+        )
+        responses = search.responses or client.wait_for_search_responses(
+            search.id, max_wait_seconds=args.search_timeout
+        )
+
+        if args.verbose:
+            console.print(f"[dim]Respostas para {track.path}:[/dim] {len(responses)}")
 
         if progress is not None:
             progress.advance(task_id, 1)
@@ -545,9 +569,9 @@ def _run_preview(args: argparse.Namespace) -> int:
 
     _render_preview(items)
 
-    if args.output is not None:
-        _save_batch_plan(args.output, items)
-        console.print(f"[cyan]Plano salvo em:[/cyan] {args.output}")
+    plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
+    _save_batch_plan(plan_path, items)
+    console.print(f"[cyan]Plano salvo em:[/cyan] {plan_path}")
 
     return 0
 

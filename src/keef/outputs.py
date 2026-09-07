@@ -17,11 +17,10 @@ def create_output_dir(root: Path, now: datetime | None = None) -> Path:
         now, horário opcional usado para testes.
 
     output:
-        Path, diretório criado no formato outputs/DD/MM-HH-mm[-N].
+        Path, diretório criado no formato outputs/DD-HH-MM[-N].
     """
     timestamp = now or datetime.now()
-    day_dir = root / timestamp.strftime("%d")
-    base_dir = day_dir / timestamp.strftime("%m-%H-%M")
+    base_dir = root / timestamp.strftime("%d-%H-%M")
     output_dir = base_dir
     suffix = 1
 

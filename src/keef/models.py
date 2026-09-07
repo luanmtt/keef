@@ -54,7 +54,7 @@ class MusicTrack(BaseModel):
 
 class SearchRequest(BaseModel):
     search_text: str = Field(min_length=1)
-    search_timeout: int = Field(default=15, ge=5)
+    search_timeout: int = Field(default=5, ge=1)
     response_limit: int = Field(default=100, ge=1)
 
 

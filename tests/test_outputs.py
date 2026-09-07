@@ -23,7 +23,7 @@ def test_create_output_dir_uses_expected_timestamp(tmp_path) -> None:
         datetime(2026, 9, 3, 18, 42),
     )
 
-    assert output_dir.relative_to(tmp_path) == Path("outputs/03/09-18-42")
+    assert output_dir.relative_to(tmp_path) == Path("outputs/03-18-42")
 
 
 def test_create_output_dir_avoids_collision(tmp_path) -> None:
@@ -43,7 +43,7 @@ def test_create_output_dir_avoids_collision(tmp_path) -> None:
     second = create_output_dir(root, timestamp)
 
     assert first != second
-    assert second.name == "09-18-42-01"
+    assert second.name == "03-18-42-01"
 
 
 def test_write_metadata_report_writes_tracks_and_errors(tmp_path) -> None:
