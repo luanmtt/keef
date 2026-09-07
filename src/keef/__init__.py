@@ -52,6 +52,39 @@ def _format_search_text(
     return "".join(parts)
 
 
+def _search_queries(
+    title: str | None, album: str | None, artist: str | None
+) -> list[str]:
+    """
+    _search_queries: gera variações da query por fallback.
+
+    input:
+        title, nome da faixa.
+        album, nome do álbum.
+        artist, nome do artista.
+
+    output:
+        list[str], queries ordenadas da mais específica para a mais genérica.
+    """
+    queries = []
+
+    full = _format_search_text(title, album, artist)
+
+    if full:
+        queries.append(full)
+
+    if title and album:
+        queries.append(f"{title} {album}")
+
+    if title and artist:
+        queries.append(f"{title} {artist}")
+
+    if title:
+        queries.append(title)
+
+    return list(dict.fromkeys(queries))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """
     _build_parser: cria o parser da CLI.
@@ -642,23 +675,28 @@ def _run_preview(args: argparse.Namespace) -> int:
 
             return []
 
-        search_text = _format_search_text(track.title, track.album, track.artist)
+        queries = _search_queries(track.title, track.album, track.artist)
+        responses: list = []
 
-        if args.verbose:
-            console.print(f"\n[dim]Query:[/dim] [cyan]{search_text}[/cyan]")
+        for query in queries:
+            if args.verbose:
+                console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
 
-        search = client.search(
-            SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
-        )
-        responses = search.responses or client.wait_for_search_responses(
-            search.id, max_wait_seconds=args.search_timeout
-        )
-
-        if args.verbose:
-            console.print(
-                f"[dim]Respostas para[/dim] [green]{track.path}[/green][dim]:[/dim] "
-                f"[yellow]{len(responses)}[/yellow]"
+            search = client.search(
+                SearchRequest(search_text=query, search_timeout=args.search_timeout)
             )
+            responses = search.responses or client.wait_for_search_responses(
+                search.id, max_wait_seconds=args.search_timeout
+            )
+
+            if args.verbose:
+                console.print(
+                    f"[dim]Respostas para[/dim] [green]{track.path}[/green][dim]:[/dim] "
+                    f"[yellow]{len(responses)}[/yellow]"
+                )
+
+            if responses:
+                break
 
         if progress is not None:
             progress.advance(task_id, 1)
@@ -683,23 +721,28 @@ def _run_preview(args: argparse.Namespace) -> int:
 
             return []
 
-        search_text = _format_search_text(album.album, None, album.artist)
+        queries = _search_queries(album.album, None, album.artist)
+        responses: list = []
 
-        if args.verbose:
-            console.print(f"\n[dim]Query:[/dim] [cyan]{search_text}[/cyan]")
+        for query in queries:
+            if args.verbose:
+                console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
 
-        search = client.search(
-            SearchRequest(search_text=search_text, search_timeout=args.search_timeout)
-        )
-        responses = search.responses or client.wait_for_search_responses(
-            search.id, max_wait_seconds=args.search_timeout
-        )
-
-        if args.verbose:
-            console.print(
-                f"[dim]Respostas para[/dim] [green]{album.folder_name}[/green][dim]:[/dim] "
-                f"[yellow]{len(responses)}[/yellow]"
+            search = client.search(
+                SearchRequest(search_text=query, search_timeout=args.search_timeout)
             )
+            responses = search.responses or client.wait_for_search_responses(
+                search.id, max_wait_seconds=args.search_timeout
+            )
+
+            if args.verbose:
+                console.print(
+                    f"[dim]Respostas para[/dim] [green]{album.folder_name}[/green][dim]:[/dim] "
+                    f"[yellow]{len(responses)}[/yellow]"
+                )
+
+            if responses:
+                break
 
         if progress is not None:
             progress.advance(task_id, 1)
