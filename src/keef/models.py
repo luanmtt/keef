@@ -132,7 +132,6 @@ class AlbumMatchResult(BaseModel):
 
 class MetadataReport(BaseModel):
     tracks: list[MusicTrack] = Field(default_factory=list)
-    albums: list[AlbumScan] = Field(default_factory=list)
     errors: list[dict[str, str]] = Field(default_factory=list)
 
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from keef.models import AlbumScan, MusicTrack
+from keef.models import MusicTrack
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -37,7 +37,6 @@ def write_metadata_report(
     output_dir: Path,
     tracks: list[MusicTrack],
     errors: list[dict[str, str]],
-    albums: list[AlbumScan] | None = None,
 ) -> Path:
     """
     write_metadata_report: grava o relatório de parsing em JSON.
@@ -46,7 +45,6 @@ def write_metadata_report(
         output_dir, diretório temporal de saída.
         tracks, músicas lidas com sucesso.
         errors, falhas individuais com caminho e diagnóstico.
-        albums, álbuns lidos com sucesso (opcional).
 
     output:
         Path, caminho do arquivo metadata.json criado.
@@ -54,7 +52,6 @@ def write_metadata_report(
     report_path = output_dir / "metadata.json"
     payload: dict[str, Any] = {
         "tracks": [track.model_dump() for track in tracks],
-        "albums": [album.model_dump() for album in (albums or [])],
         "errors": errors,
     }
 

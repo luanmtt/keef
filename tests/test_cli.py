@@ -379,7 +379,7 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
     output:
         None, teste aprovado quando relatório é criado e código é zero.
     """
-    track = MusicTrack(path=str(tmp_path / "blue.mp3"), title="Blue")
+    track = MusicTrack(path="blue.mp3", title="Blue")
     scan_result = LibraryScanResult(tracks=[track])
     output_dir = tmp_path / "outputs" / "03" / "09-18-42"
     report_path = output_dir / "metadata.json"
@@ -408,7 +408,7 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
         """
         return output_dir
 
-    def fake_write_report(directory, tracks, errors, albums=None) -> Path:
+    def fake_write_report(directory, tracks, errors) -> Path:
         """
         fake_write_report: simula gravação do relatório.
 
@@ -431,7 +431,7 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
     )
 
     assert exit_code == 0
-    assert "Tracks lidas: 1" in output.getvalue()
+    assert "Tracks individuais: 1" in output.getvalue()
     assert "metadata.json" in output.getvalue()
 
 
@@ -545,9 +545,9 @@ def test_preview_online_saves_batch_plan(monkeypatch, tmp_path) -> None:
     assert exit_code == 0
     assert output_path.exists()
     plan = json.loads(output_path.read_text())
-    assert len(plan) == 1
-    assert plan[0]["username"] == "alice"
-    assert plan[0]["filename"] == "Artist - Blue.mp3"
+    assert len(plan["tracks"]) == 1
+    assert plan["tracks"][0]["username"] == "alice"
+    assert plan["tracks"][0]["filename"] == "Artist - Blue.mp3"
 
 
 def test_preview_online_saves_plan_next_to_report_by_default(monkeypatch, tmp_path) -> None:
@@ -622,6 +622,6 @@ def test_preview_online_saves_plan_next_to_report_by_default(monkeypatch, tmp_pa
     plan_path = report_dir / "plan.json"
     assert plan_path.exists()
     plan = json.loads(plan_path.read_text())
-    assert len(plan) == 1
+    assert len(plan["tracks"]) == 1
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

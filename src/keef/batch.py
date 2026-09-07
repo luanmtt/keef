@@ -2,14 +2,11 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import httpx
 
-from keef.matching import match_album, score_candidate
+from keef.matching import score_candidate
 from keef.models import (
-    AlbumMatchResult,
-    AlbumScan,
     BatchPreviewItem,
     MetadataReport,
     MusicTrack,
@@ -78,49 +75,5 @@ def preview_batch(
             time.sleep(search_delay_seconds)
 
     return preview
-
-
-def preview_albums(
-    albums: list[AlbumScan],
-    search_provider: Callable[[AlbumScan], list[dict[str, Any]]],
-    policy: QualityPolicy,
-    target_kbps: int | None = None,
-    track_count_tolerance: int = 1,
-    search_delay_seconds: float = 1.0,
-) -> list[AlbumMatchResult]:
-    """
-    preview_albums: pesquisa candidatos para álbuns completos.
-
-    input:
-        albums, lista de álbuns escaneados.
-        search_provider, função que retorna respostas brutas do slskd.
-        policy, regra de qualidade do candidato.
-        target_kbps, bitrate alvo opcional.
-        track_count_tolerance, diferença aceitável no número de faixas.
-        search_delay_seconds, pausa entre pesquisas.
-
-    output:
-        list[AlbumMatchResult], resultados por álbum.
-    """
-    results = []
-
-    for index, album in enumerate(albums):
-        try:
-            responses = search_provider(album)
-            result = match_album(
-                album,
-                responses,
-                policy,
-                target_kbps,
-                track_count_tolerance,
-            )
-            results.append(result)
-        except (httpx.HTTPError, OSError, TypeError, ValueError) as error:
-            results.append(AlbumMatchResult(album=album, error=str(error)))
-
-        if index < len(albums) - 1 and search_delay_seconds > 0:
-            time.sleep(search_delay_seconds)
-
-    return results
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -11,10 +11,10 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from keef.config import SlskdConfig
-from keef.batch import load_metadata_report, preview_albums, preview_batch
+from keef.batch import load_metadata_report, preview_batch
 from keef.library import scan_library
 from keef.matching import candidates_from_responses, score_candidate
-from keef.models import AlbumMatchResult, ConnectionReport, QualityPolicy, SearchRequest
+from keef.models import BatchPreviewItem, ConnectionReport, QualityPolicy, SearchRequest
 from keef.music import try_read_audio
 from keef.outputs import create_output_dir, write_metadata_report
 from keef.slskd import SlskdClient
@@ -433,9 +433,12 @@ def _render_scan_summary(result, report_path: Path) -> None:
     output:
         None, imprime resumo Rich no console.
     """
+    album_count = sum(1 for t in result.tracks if _is_album_track(t.path))
+    track_count = len(result.tracks) - album_count
+
     console.print(
-        f"[green]Tracks lidas:[/green] {len(result.tracks)}\n"
-        f"[green]Álbuns lidos:[/green] {len(result.albums)}\n"
+        f"[green]Tracks individuais:[/green] {track_count}\n"
+        f"[green]💿 Tracks em álbuns:[/green] {album_count}\n"
         f"[yellow]Erros:[/yellow] {len(result.errors)}\n"
         f"[cyan]Relatório:[/cyan] {report_path}"
     )
@@ -458,9 +461,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         return 2
 
     output_dir = create_output_dir(args.output_dir)
-    report_path = write_metadata_report(
-        output_dir, result.tracks, result.errors, result.albums
-    )
+    report_path = write_metadata_report(output_dir, result.tracks, result.errors)
     _render_scan_summary(result, report_path)
 
     if not result.tracks:
@@ -508,119 +509,173 @@ def _render_preview(items) -> None:
     console.print(table)
 
 
-def _render_album_preview(album_results: list[AlbumMatchResult]) -> None:
+def _is_album_track(track_path: str) -> bool:
     """
-    _render_album_preview: apresenta decisões do preview de álbuns.
+    _is_album_track: verifica se a track pertence a uma pasta de álbum.
 
     input:
-        album_results, resultados do preview de álbuns.
+        track_path, caminho relativo da track.
 
     output:
-        None, imprime tabela Rich no console.
+        bool, True se o caminho contiver um diretório pai (pasta de álbum).
     """
-    if not album_results:
-        return
-
-    table = Table(title="Preview álbuns")
-    table.add_column("Álbum", no_wrap=True)
-    table.add_column("Usuário", no_wrap=True)
-    table.add_column("Faixas", no_wrap=True)
-    table.add_column("Score", no_wrap=True)
-    table.add_column("Decisão", no_wrap=True)
-
-    for result in album_results:
-        if result.error:
-            table.add_row(
-                result.album.folder_name, "-", "-", "-", f"erro: {result.error}"
-            )
-            continue
-
-        if not result.matches:
-            table.add_row(
-                result.album.folder_name, "-", "-", "-", "sem candidatos"
-            )
-            continue
-
-        best = result.matches[0]
-        matched = len(best.matched_files)
-        total = result.album.track_count
-        accepted = "aceito" if best.accepted else "rejeitado"
-
-        table.add_row(
-            result.album.folder_name,
-            best.username,
-            f"{matched}/{total}",
-            f"{best.overall_score:.2f}",
-            accepted,
-        )
-
-    console.print(table)
+    return Path(track_path).parent != Path(".")
 
 
-def _save_batch_plan(
-    path: Path, items: list, album_results: list[AlbumMatchResult] | None = None
-) -> None:
+def _album_key(track) -> str:
     """
-    _save_batch_plan: persiste candidatos aceitos para instalação futura.
+    _album_key: extrai chave de agrupamento do álbum.
 
     input:
-        path, caminho do arquivo JSON de saída.
-        items, resultados do preview batch (tracks individuais).
-        album_results, resultados do preview de álbuns (opcional).
+        track, metadados da música.
 
     output:
-        None, escreve o plano no disco.
+        str, chave no formato 'artist - album' ou pasta do caminho.
     """
-    plan = []
+    if track.artist and track.album:
+        return f"{track.artist} - {track.album}"
+
+    parent = str(Path(track.path).parent)
+
+    return parent if parent != "." else track.path
+
+
+def _analyze_album_results(
+    items: list[BatchPreviewItem],
+) -> dict[str, list[dict]]:
+    """
+    _analyze_album_results: agrupa resultados por álbum e usuário.
+
+    input:
+        items, resultados do preview batch.
+
+    output:
+        dict, chave=álbum, valor=lista de {username, tracks_aceitas, total}.
+    """
+    albums: dict[str, dict[str, list]] = {}
 
     for item in items:
-        if item.error:
+        if item.error or not _is_album_track(item.track.path):
             continue
+
+        key = _album_key(item.track)
+        albums.setdefault(key, {})
 
         for match, quality in zip(item.candidates, item.quality_decisions):
             if match.accepted and quality.eligible:
-                plan.append(
+                username = match.candidate.username
+                albums[key].setdefault(username, []).append(
                     {
-                        "type": "track",
                         "local_path": item.track.path,
-                        "username": match.candidate.username,
-                        "filename": match.candidate.filename,
-                        "size": match.candidate.size,
+                        "remote_filename": match.candidate.filename,
+                        "remote_size": match.candidate.size,
                         "score": match.score,
                     }
                 )
                 break
 
-    for album_result in album_results or []:
-        if album_result.error:
-            continue
+    result = {}
 
-        best = next(
-            (m for m in album_result.matches if m.accepted), None
+    for album_name, users in albums.items():
+        total_tracks = sum(
+            1 for item in items
+            if _is_album_track(item.track.path) and _album_key(item.track) == album_name
         )
 
-        if best is None:
-            continue
+        user_list = []
 
-        plan.append(
-            {
-                "type": "album",
-                "folder_name": album_result.album.folder_name,
-                "artist": album_result.album.artist,
-                "album": album_result.album.album,
-                "username": best.username,
-                "files": [
+        for username, matched_files in users.items():
+            count = len(matched_files)
+
+            if count >= total_tracks * 0.5:
+                user_list.append(
                     {
-                        "local_path": m.local_track.path,
-                        "remote_filename": m.remote_filename,
-                        "remote_size": m.remote_size,
-                        "score": m.score,
+                        "username": username,
+                        "matched_count": count,
+                        "total_tracks": total_tracks,
+                        "coverage": round(count / total_tracks, 2),
+                        "files": matched_files,
                     }
-                    for m in best.matched_files
-                ],
-                "overall_score": best.overall_score,
-            }
-        )
+                )
+
+        user_list.sort(key=lambda u: u["coverage"], reverse=True)
+
+        if user_list:
+            result[album_name] = user_list
+
+    return result
+
+
+def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> None:
+    """
+    _save_batch_plan: persiste candidatos aceitos para instalação futura.
+
+    input:
+        path, caminho do arquivo JSON de saída.
+        items, resultados do preview batch.
+
+    output:
+        None, escreve o plano no disco com tracks individuais e fallback de álbuns.
+    """
+    plan = {"tracks": [], "albums": {}}
+
+    for item in items:
+        if item.error:
+            continue
+
+        is_album = _is_album_track(item.track.path)
+
+        for match, quality in zip(item.candidates, item.quality_decisions):
+            if match.accepted and quality.eligible:
+                entry = {
+                    "local_path": item.track.path,
+                    "username": match.candidate.username,
+                    "filename": match.candidate.filename,
+                    "size": match.candidate.size,
+                    "score": match.score,
+                }
+
+                if is_album:
+                    key = _album_key(item.track)
+                    plan["albums"].setdefault(key, {"users": {}, "total_tracks": 0})
+                    plan["albums"][key]["users"].setdefault(
+                        match.candidate.username, []
+                    ).append(entry)
+                    plan["albums"][key]["total_tracks"] = sum(
+                        1 for i in items
+                        if _is_album_track(i.track.path) and _album_key(i.track) == key
+                    )
+                else:
+                    plan["tracks"].append(entry)
+
+                break
+
+    best_users = {}
+
+    for album_name, album_data in plan["albums"].items():
+        total = album_data["total_tracks"]
+        ranked = []
+
+        for username, files in album_data["users"].items():
+            count = len(files)
+            coverage = round(count / total, 2) if total > 0 else 0
+
+            if count >= total * 0.5:
+                ranked.append(
+                    {
+                        "username": username,
+                        "matched_count": count,
+                        "total_tracks": total,
+                        "coverage": coverage,
+                    }
+                )
+
+        ranked.sort(key=lambda u: u["coverage"], reverse=True)
+
+        if ranked:
+            best_users[album_name] = ranked
+
+    plan["best_users"] = best_users
 
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
 
@@ -696,8 +751,9 @@ def _run_preview(args: argparse.Namespace) -> int:
             )
 
             if args.verbose:
+                label = "💿 " + track.path if _is_album_track(track.path) else track.path
                 console.print(
-                    f"[dim]Respostas para[/dim] [green]{track.path}[/green][dim]:[/dim] "
+                    f"[dim]Respostas para[/dim] [green]{label}[/green][dim]:[/dim] "
                     f"[yellow]{len(responses)}[/yellow]"
                 )
 
@@ -709,76 +765,14 @@ def _run_preview(args: argparse.Namespace) -> int:
 
         return candidates_from_responses(responses)
 
-    def album_search_provider(album, progress=None, task_id=None) -> list:
-        """
-        album_search_provider: pesquisa respostas brutas para um álbum.
-
-        input:
-            album, scan do álbum local.
-            progress, instância do Rich Progress opcional.
-            task_id, identificador da tarefa de progresso.
-
-        output:
-            list, respostas brutas do slskd ou lista vazia no modo offline.
-        """
-        if client is None:
-            if progress is not None:
-                progress.advance(task_id, 1)
-
-            return []
-
-        queries = _search_queries(album.album, None, album.artist)
-        responses: list = []
-
-        for query, removed in queries:
-            if args.verbose:
-                if removed:
-                    console.print(
-                        f"\n[dim]Query:[/dim] [cyan]{query}[/cyan] "
-                        f"[red](-{removed})[/red]"
-                    )
-                else:
-                    console.print(f"\n[dim]Query:[/dim] [cyan]{query}[/cyan]")
-
-            search = client.search(
-                SearchRequest(search_text=query, search_timeout=args.search_timeout)
-            )
-            responses = search.responses or client.wait_for_search_responses(
-                search.id, max_wait_seconds=args.search_timeout
-            )
-
-            if args.verbose:
-                console.print(
-                    f"[dim]Respostas para[/dim] [green]{album.folder_name}[/green][dim]:[/dim] "
-                    f"[yellow]{len(responses)}[/yellow]"
-                )
-
-            if responses:
-                break
-
-        if progress is not None:
-            progress.advance(task_id, 1)
-
-        return responses
-
     try:
-        total_tasks = len(report.tracks) + len(report.albums)
-
-        if args.online and total_tasks > 0:
+        if args.online and report.tracks:
             with Progress(console=console) as progress:
-                task = progress.add_task("Pesquisando", total=total_tasks)
+                task = progress.add_task("Pesquisando", total=len(report.tracks))
 
                 items = preview_batch(
                     report,
                     lambda track: candidate_provider(track, progress, task),
-                    QualityPolicy(args.policy),
-                    args.target_kbps,
-                    search_delay_seconds=args.search_delay,
-                )
-
-                album_results = preview_albums(
-                    report.albums,
-                    lambda album: album_search_provider(album, progress, task),
                     QualityPolicy(args.policy),
                     args.target_kbps,
                     search_delay_seconds=args.search_delay,
@@ -791,23 +785,14 @@ def _run_preview(args: argparse.Namespace) -> int:
                 args.target_kbps,
                 search_delay_seconds=args.search_delay,
             )
-
-            album_results = preview_albums(
-                report.albums,
-                album_search_provider,
-                QualityPolicy(args.policy),
-                args.target_kbps,
-                search_delay_seconds=args.search_delay,
-            )
     finally:
         if client is not None:
             client.close()
 
     _render_preview(items)
-    _render_album_preview(album_results)
 
     plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
-    _save_batch_plan(plan_path, items, album_results)
+    _save_batch_plan(plan_path, items)
     console.print(f"[cyan]Plano salvo em:[/cyan] {plan_path}")
 
     return 0

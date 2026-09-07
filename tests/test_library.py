@@ -45,12 +45,11 @@ def test_scan_library_recurses_and_keeps_errors(monkeypatch, tmp_path) -> None:
 
     result = keef.library.scan_library(tmp_path)
 
-    assert len(result.albums) == 1
-    assert result.albums[0].tracks[0].title == "Blue"
-    assert result.albums[0].tracks[0].path == "valid.flac"
+    assert len(result.tracks) == 1
+    assert result.tracks[0].title == "Blue"
+    assert result.tracks[0].path == "album/valid.flac"
     assert result.errors == [
         {"path": "broken.mp3", "error": "áudio inválido"},
-        {"path": "cover.jpg", "error": "áudio inválido"},
     ]
 
 
@@ -76,7 +75,7 @@ def test_scan_library_detects_album_folders(monkeypatch, tmp_path) -> None:
         diretório com pasta de álbum contendo faixas.
 
     output:
-        None, teste aprovado quando álbum é detectado e faixas são lidas.
+        None, teste aprovado quando faixas da pasta são incluídas na lista de tracks.
     """
     album_dir = tmp_path / "Blonde"
     album_dir.mkdir()
@@ -107,13 +106,10 @@ def test_scan_library_detects_album_folders(monkeypatch, tmp_path) -> None:
 
     result = keef.library.scan_library(tmp_path)
 
-    assert len(result.albums) == 1
-    assert result.albums[0].folder_name == "Blonde"
-    assert result.albums[0].artist == "Frank Ocean"
-    assert result.albums[0].album == "Blonde"
-    assert result.albums[0].track_count == 2
-    assert len(result.albums[0].tracks) == 2
-    assert result.albums[0].tracks[0].path == "01 Nikes.flac"
+    assert len(result.tracks) == 2
+    assert result.tracks[0].path == "Blonde/01 Nikes.flac"
+    assert result.tracks[0].artist == "Frank Ocean"
+    assert result.tracks[1].path == "Blonde/02 Ivy.flac"
 
 
 def test_scan_library_mixed_files_and_folders(monkeypatch, tmp_path) -> None:
@@ -124,7 +120,7 @@ def test_scan_library_mixed_files_and_folders(monkeypatch, tmp_path) -> None:
         diretório com arquivo individual e pasta de álbum.
 
     output:
-        None, teste aprovado quando tracks e albums são separados.
+        None, teste aprovado quando todas as tracks são incluídas.
     """
     individual = tmp_path / "standalone.flac"
     individual.touch()
@@ -149,10 +145,10 @@ def test_scan_library_mixed_files_and_folders(monkeypatch, tmp_path) -> None:
 
     result = keef.library.scan_library(tmp_path)
 
-    assert len(result.tracks) == 1
-    assert result.tracks[0].path == "standalone.flac"
-    assert len(result.albums) == 1
-    assert result.albums[0].folder_name == "Album"
+    assert len(result.tracks) == 2
+    paths = {t.path for t in result.tracks}
+    assert "standalone.flac" in paths
+    assert "Album/01 Track.flac" in paths
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
