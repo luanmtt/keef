@@ -1,45 +1,29 @@
-# keef 🚬🎵
+# keef
 
-update sua biblioteca musical com Soulseek usando uma interface CLI.
+CLI para atualização segura de bibliotecas musicais via Soulseek (backend slskd).
 
-## Desenvolvimento
+## Stack
 
-O ambiente oficial do projeto fica em `.keef`. Com direnv instalado, o
-`.envrc` carrega automaticamente a variável definida em `.uv_env`:
+Python 3.13, uv, Rich, Pydantic, httpx, mutagen, pytest.
+
+## Instalação rápida
 
 ```bash
-direnv allow
+git clone https://github.com/luanmtt/keef.git
+cd keef
 uv sync
 ```
 
-Sem direnv, carregue a variável manualmente:
+## Configuração do slskd
 
-```bash
-set -a
-source .uv_env
-set +a
-uv sync
-```
+O keef usa o [slskd](https://slskd.org/) como backend Soulseek.
 
-Para verificar a instalação:
-
-```bash
-uv run keef --help
-```
-
-## Status do slskd
-
-O keef usa o slskd como backend Soulseek. O slskd pode ser executado por
-binário nativo ou Docker.
-
-- Site: https://slskd.org/
-- Código e releases: https://github.com/slskd/slskd
-
-### Inicialização com Docker
+### Docker (recomendado)
 
 ```bash
 docker run -d \
   --name slskd \
+  --restart unless-stopped \
   -p 127.0.0.1:5030:5030 \
   -p 127.0.0.1:5031:5031 \
   -p 127.0.0.1:50300:50300 \
@@ -48,94 +32,120 @@ docker run -d \
   slskd/slskd:latest
 ```
 
-Depois, abra `http://127.0.0.1:5030` e configure separadamente as credenciais
-Soulseek, o diretório de downloads e uma API key local com permissão de leitura
-e escrita. Não exponha essas portas diretamente à internet.
+Depois, abra `http://127.0.0.1:5030` e configure:
 
-### Inicialização por binário
+1. Credenciais Soulseek (usuário/senha)
+2. API key local com permissão `readwrite`
+3. Compartilhamentos (pasta de músicas para upload)
 
-Baixe o arquivo correspondente ao seu sistema na página de releases, extraia e
-execute o binário `slskd`. A configuração será criada no diretório de dados do
-usuário. Consulte a documentação oficial antes de expor o serviço ou alterar
-as configurações de HTTPS.
+### Binário
 
-### Configuração do keef
-
-O token da API deve ser fornecido somente por ambiente local. Não use `--token`
-nem grave o token em arquivos versionados:
+Baixe o binário em https://github.com/slskd/slskd/releases e execute:
 
 ```bash
-set -a
-source .env.local
-set +a
-uv run keef status
+./slskd
 ```
 
-Exemplo de `.env.local` — mantenha este arquivo local e com permissões restritas:
+## Configuração do keef
+
+Crie `.env.local` na raiz do projeto (não versionado):
 
 ```bash
 KEEF_SLSKD_URL=http://127.0.0.1:5030
-KEEF_SLSKD_TOKEN=<api-key-local>
+KEEF_SLSKD_TOKEN=sua-api-key-aqui
 ```
 
-O comando consulta as rotas `/api/v0/application` e `/api/v0/server`. Nesta
-fase ele apenas verifica conectividade e estado; não pesquisa nem baixa
-arquivos.
+### Wrapper script
 
-## Instalação single-track
-
-Para testar uma música sem alterar a biblioteca original:
+Para evitar carregar variáveis manualmente, use o wrapper `./keef`:
 
 ```bash
-uv run keef install <track.mp3>
+./keef status
+./keef scan songs --output-dir outputs
+./keef preview outputs/08-19-35/metadata.json --online --verbose
+./keef install --plan outputs/08-19-35/plan.json --execute
 ```
 
-O comando usa dry-run por padrão. Para solicitar um download, informe uma
-pasta de staging fora da biblioteca e habilite explicitamente a execução:
+Alternativamente, com `direnv` instalado:
 
 ```bash
-uv run keef install <track.mp3> \
-  --staging-dir <staging-directory> \
-  --execute
+echo 'source .env.local' > .envrc
+direnv allow
 ```
 
-O arquivo original nunca é sobrescrito por este comando.
+## Fluxo de uso
 
-## Parsing de uma biblioteca
+### 1. Preparar músicas
 
-Para ler todos os MP3s de um diretório e gerar um relatório temporal:
+Coloque suas músicas em `songs/`:
 
-```bash
-uv run keef scan <library-directory>
+```
+songs/
+├── track individual.mp3        ← busca individual
+└── Nome do Álbum/              ← agrupado como álbum (💿)
+    ├── 01 Faixa Um.flac
+    └── 02 Faixa Dois.flac
 ```
 
-O relatório será salvo em `outputs/DD/MM-HH-mm/metadata.json`. O comando
-apenas lê os arquivos; não acessa o slskd e não inicia downloads.
-
-## Preview batch
-
-Para visualizar um plano de atualização sem iniciar downloads:
+### 2. Escanear
 
 ```bash
-uv run keef preview outputs/DD/MM-HH-mm/metadata.json
+./keef scan songs --output-dir outputs
 ```
 
-Por padrão, o preview é offline e apenas valida o relatório. Para pesquisar
-candidatos no slskd, use `--online`:
+Gera `outputs/DD-HH-MM/metadata.json` com metadados de todas as faixas.
+
+### 3. Preview (pesquisa no Soulseek)
 
 ```bash
-uv run keef preview outputs/DD/MM-HH-mm/metadata.json \
+./keef preview outputs/08-19-35/metadata.json \
   --online \
-  --policy higher
+  --verbose \
+  --policy higher \
+  --search-timeout 15
 ```
 
-As políticas disponíveis são `higher`, `lower` e `exact`. O preview nunca
-solicita downloads.
+O preview:
 
-Quando uma instalação é executada com `--execute`, o keef exibe o
-identificador e o estado retornados pelo slskd. O estado detalhado pode ser
-consultado pela API em
-`/api/v0/transfers/downloads/{username}/{download_id}`.
+- Busca cada faixa individualmente no Soulseek
+- Usa fallback automático: `Título - Álbum, Artista` → `Título - Álbum` → `Título`
+- Mostra 💿 para faixas de álbum com fonte recomendada
+- Gera `plan.json` com candidatos aceitos
+
+Políticas de qualidade:
+
+- `higher` — bitrate maior que o local (padrão)
+- `lower` — bitrate menor que o local
+- `exact` — bitrate exato (use `--target-kbps`)
+
+### 4. Instalar (download)
+
+```bash
+./keef install --plan outputs/08-19-35/plan.json --execute
+```
+
+O download vai para o diretório de downloads do slskd, subpasta `keef/`:
+
+```
+~/.local/share/slskd/downloads/keef/
+├── track individual.mp3
+└── Nome do Álbum/
+    ├── 01 Faixa Um.flac
+    └── 02 Faixa Dois.flac
+```
+
+Para mudar o destino:
+
+```bash
+./keef install --plan plan.json --execute --staging-dir minha-pasta
+```
+
+O monitoramento mostra:
+
+- Tempo decorrido
+- Taxa de transferência
+- Arquivos completos / total
+- Bytes acumulados
 
 ## Testes
 
