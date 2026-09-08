@@ -227,6 +227,36 @@ class SlskdClient:
         encoded_username = quote(username, safe="")
         return self._get_json(f"/api/v0/transfers/downloads/{encoded_username}/{download_id}")
 
+    def list_downloads(self) -> list[dict[str, Any]]:
+        """
+        list_downloads: lista todos os downloads ativos.
+
+        input:
+            nenhum.
+
+        output:
+            list[dict[str, Any]], downloads em andamento.
+        """
+        payload = self._request_json("/api/v0/transfers/downloads")
+
+        if isinstance(payload, list):
+            return payload
+
+        return []
+
+    def get_user_info(self, username: str) -> dict[str, Any]:
+        """
+        get_user_info: consulta informações de um usuário.
+
+        input:
+            username, nome do usuário.
+
+        output:
+            dict[str, Any], dados do usuário (status, velocidade, etc.).
+        """
+        encoded_username = quote(username, safe="")
+        return self._get_json(f"/api/v0/users/{encoded_username}")
+
     def _get_json(self, path: str) -> dict[str, Any]:
         """
         _get_json: obtém um objeto JSON de uma rota.

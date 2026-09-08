@@ -190,183 +190,106 @@ def test_status_command_returns_failure_for_unreachable_service(monkeypatch) -> 
     assert exit_code == 1
 
 
-def test_install_command_dry_run_does_not_request_download(monkeypatch, tmp_path) -> None:
+def test_install_command_dry_run_shows_plan_entries(monkeypatch, tmp_path) -> None:
     """
-    test_install_command_dry_run_does_not_request_download: protege dry-run.
+    test_install_command_dry_run_shows_plan_entries: protege dry-run.
 
     input:
-        música local e candidato remoto simulados.
+        plan.json com uma entrada de track.
 
     output:
-        None, teste aprovado quando nenhuma solicitação é enviada.
+        None, teste aprovado quando dry-run mostra entradas sem baixar.
     """
     output = StringIO()
     monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
-    track = MusicTrack(
-        path=str(tmp_path / "blue.mp3"),
-        title="Blue",
-        artist="Artist",
-        duration_seconds=210,
-    )
-    search_result = SearchResult.model_validate(
-        {
-            "id": "12345678-1234-5678-1234-567812345678",
-            "responses": [
-                {
-                    "username": "alice",
-                    "files": [
-                        {
-                            "filename": "Artist - Blue.mp3",
-                            "size": 1_000,
-                            "title": "Blue",
-                            "artist": "Artist",
-                            "duration": 210,
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-    fake_client = FakeInstallClient(
-        ConnectionReport(reachable=True, authenticated=True),
-        search_result,
-    )
-    def read_track(path: Path) -> MusicTrack:
-        """
-        read_track: retorna a música simulada.
 
-        input:
-            path, caminho recebido pelo parser.
-
-        output:
-            MusicTrack, metadados fixos do teste.
-        """
-        return track
-
-    def build_install_client(config) -> FakeInstallClient:
-        """
-        build_install_client: retorna cliente simulado.
-
-        input:
-            config, configuração recebida pela CLI.
-
-        output:
-            FakeInstallClient, cliente controlado pelo teste.
-        """
-        return fake_client
-
-    monkeypatch.setattr(keef, "try_read_audio", read_track)
-    monkeypatch.setattr(keef, "SlskdClient", build_install_client)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps({
+        "tracks": [
+            {
+                "local_path": "blue.mp3",
+                "username": "alice",
+                "filename": "Artist - Blue.mp3",
+                "size": 1_000_000,
+                "score": 0.95,
+            }
+        ],
+        "albums": {},
+        "best_users": {},
+    }))
 
     exit_code = keef._run_install(
         Namespace(
-            path=Path(track.path),
-            staging_dir=tmp_path.parent / "staging",
+            plan=plan_path,
+            staging_dir=tmp_path / "staging",
             execute=False,
             url="http://localhost:5030",
-            token=None,
             timeout=None,
         )
     )
 
     assert exit_code == 0
-    assert fake_client.download_requested is False
     assert "Dry-run" in output.getvalue()
+    assert "blue.mp3" in output.getvalue()
 
 
-def test_install_command_requests_download_after_confirmation(monkeypatch, tmp_path) -> None:
+def test_install_command_execute_enqueues_downloads(monkeypatch, tmp_path) -> None:
     """
-    test_install_command_requests_download_after_confirmation: verifica confirmação.
+    test_install_command_execute_enqueues_downloads: verifica execução.
 
     input:
-        música, candidato e confirmação simulados.
+        plan.json com uma entrada e --execute.
 
     output:
         None, teste aprovado quando download é solicitado.
     """
-    track = MusicTrack(
-        path=str(tmp_path / "blue.mp3"),
-        title="Blue",
-        artist="Artist",
-        duration_seconds=210,
-    )
-    search_result = SearchResult.model_validate(
-        {
-            "id": "12345678-1234-5678-1234-567812345678",
-            "responses": [
-                {
-                    "username": "alice",
-                    "files": [
-                        {
-                            "filename": "Artist - Blue.mp3",
-                            "size": 1_000,
-                            "title": "Blue",
-                            "artist": "Artist",
-                            "duration": 210,
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-    fake_client = FakeInstallClient(
-        ConnectionReport(reachable=True, authenticated=True),
-        search_result,
-    )
-    def read_track(path: Path) -> MusicTrack:
-        """
-        read_track: retorna a música simulada.
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
 
-        input:
-            path, caminho recebido pelo parser.
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps({
+        "tracks": [
+            {
+                "local_path": "blue.mp3",
+                "username": "alice",
+                "filename": "Artist - Blue.mp3",
+                "size": 1_000_000,
+                "score": 0.95,
+            }
+        ],
+        "albums": {},
+        "best_users": {},
+    }))
 
-        output:
-            MusicTrack, metadados fixos do teste.
-        """
-        return track
+    download_requested = []
 
-    def build_install_client(config) -> FakeInstallClient:
-        """
-        build_install_client: retorna cliente simulado.
+    def build_client(config):
+        class FakeClient:
+            def enqueue_download(self, **kwargs):
+                download_requested.append(kwargs)
+                return {"id": "batch-1", "state": "queued"}
 
-        input:
-            config, configuração recebida pela CLI.
+            def close(self):
+                pass
 
-        output:
-            FakeInstallClient, cliente controlado pelo teste.
-        """
-        return fake_client
+        return FakeClient()
 
-    def confirm_download(prompt, default=False) -> bool:
-        """
-        confirm_download: aprova confirmação no teste.
-
-        input:
-            prompt, texto exibido ao usuário.
-            default, valor padrão da confirmação.
-
-        output:
-            bool, sempre True para simular aprovação.
-        """
-        return True
-
-    monkeypatch.setattr(keef, "try_read_audio", read_track)
-    monkeypatch.setattr(keef, "SlskdClient", build_install_client)
-    monkeypatch.setattr(keef.Confirm, "ask", confirm_download)
+    monkeypatch.setattr(keef, "SlskdClient", build_client)
 
     exit_code = keef._run_install(
         Namespace(
-            path=Path(track.path),
-            staging_dir=tmp_path.parent / "staging",
+            plan=plan_path,
+            staging_dir=tmp_path / "staging",
             execute=True,
             url="http://localhost:5030",
-            token=None,
             timeout=None,
         )
     )
 
     assert exit_code == 0
-    assert fake_client.download_requested is True
+    assert len(download_requested) == 1
+    assert download_requested[0]["username"] == "alice"
+    assert "Concluído" in output.getvalue()
 
 
 def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:

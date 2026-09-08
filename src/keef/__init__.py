@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 
 import httpx
@@ -95,15 +96,34 @@ def _build_parser() -> argparse.ArgumentParser:
     output:
         argparse.ArgumentParser, parser configurado.
     """
-    parser = argparse.ArgumentParser(prog="keef")
+    parser = argparse.ArgumentParser(
+        prog="keef",
+        description="keef — atualização segura de bibliotecas musicais via Soulseek",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    status_parser = subparsers.add_parser("status", help="verifica o estado do slskd")
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="verifica conexão com slskd e Soulseek",
+    )
     status_parser.add_argument("--url", help="URL base da API do slskd")
     status_parser.add_argument("--timeout", type=float, help="timeout em segundos")
+
     install_parser = subparsers.add_parser(
-        "install", help="pesquisa e prepara uma música para instalação"
+        "install",
+        help="executa downloads a partir de um plano batch",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemplo:\n"
+            "  keef install --plan outputs/07-15-18/plan.json\n"
+            "  keef install --plan plan.json --execute\n"
+            "  keef install --plan plan.json --execute --staging-dir ~/staging"
+        ),
     )
-    install_parser.add_argument("path", type=Path, help="caminho do arquivo de áudio local")
+    install_parser.add_argument(
+        "--plan", type=Path, help="caminho para plan.json gerado pelo preview"
+    )
     install_parser.add_argument(
         "--staging-dir",
         type=Path,
@@ -117,8 +137,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     install_parser.add_argument("--url", help="URL base da API do slskd")
     install_parser.add_argument("--timeout", type=float, help="timeout em segundos")
+
     scan_parser = subparsers.add_parser(
-        "scan", help="lê metadados de áudio de um diretório"
+        "scan",
+        help="lê metadados de áudio de um diretório",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemplo:\n"
+            "  keef scan ~/Music\n"
+            "  keef scan songs --output-dir outputs"
+        ),
     )
     scan_parser.add_argument("directory", type=Path, help="diretório da biblioteca")
     scan_parser.add_argument(
@@ -127,28 +155,39 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("outputs"),
         help="diretório raiz dos relatórios",
     )
+
     preview_parser = subparsers.add_parser(
-        "preview", help="prepara preview batch sem iniciar downloads"
+        "preview",
+        help="pesquisa candidatos e gera plano de instalação",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemplo:\n"
+            "  keef preview outputs/07-15-18/metadata.json --online --verbose\n"
+            "  keef preview metadata.json --online --policy higher --search-timeout 15\n"
+            "  keef preview metadata.json --online -o plan.json"
+        ),
     )
     preview_parser.add_argument("report", type=Path, help="caminho para metadata.json")
     preview_parser.add_argument(
         "--policy",
         choices=[policy.value for policy in QualityPolicy],
         default=QualityPolicy.HIGHER.value,
-        help="política de bitrate do candidato",
+        help="política de bitrate: higher (default), lower, exact",
     )
-    preview_parser.add_argument("--target-kbps", type=int, help="bitrate alvo para exact")
+    preview_parser.add_argument(
+        "--target-kbps", type=int, help="bitrate alvo para --policy exact"
+    )
     preview_parser.add_argument(
         "--search-timeout",
         type=int,
         default=5,
-        help="timeout de cada pesquisa no slskd (segundos)",
+        help="timeout de cada pesquisa no slskd (segundos, default: 5)",
     )
     preview_parser.add_argument(
         "--search-delay",
         type=float,
         default=1.0,
-        help="pausa entre pesquisas no slskd (segundos)",
+        help="pausa entre pesquisas no slskd (segundos, default: 1.0)",
     )
     preview_parser.add_argument(
         "--online",
@@ -156,15 +195,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="pesquisa candidatos no slskd; sem isto o preview é offline",
     )
     preview_parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        help="caminho para salvar o plano batch aprovado em JSON",
+        "--output", "-o", type=Path, help="caminho para salvar plan.json"
     )
     preview_parser.add_argument(
         "--verbose",
         action="store_true",
-        help="exibe texto de pesquisa e contagem de respostas",
+        help="exibe queries, respostas e fallback em tempo real",
     )
     preview_parser.add_argument("--url", help="URL base da API do slskd")
     preview_parser.add_argument("--timeout", type=float, help="timeout em segundos")
@@ -318,7 +354,235 @@ def _install_config(args: argparse.Namespace) -> SlskdConfig:
     )
 
 
+def _human_size(bytes_val: int | float) -> str:
+    """
+    _human_size: formata bytes em unidades legíveis.
+
+    input:
+        bytes_val, tamanho em bytes.
+
+    output:
+        str, tamanho formatado (ex: 1.5 GB).
+    """
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_val < 1024:
+            return f"{bytes_val:.1f} {unit}"
+        bytes_val /= 1024
+
+    return f"{bytes_val:.1f} TB"
+
+
+def _human_rate(bytes_per_sec: float) -> str:
+    """
+    _human_rate: formata taxa de transferência.
+
+    input:
+        bytes_per_sec, velocidade em bytes/segundo.
+
+    output:
+        str, taxa formatada (ex: 2.5 MB/s).
+    """
+    if bytes_per_sec <= 0:
+        return "---"
+
+    return _human_size(int(bytes_per_sec)) + "/s"
+
+
+def _human_elapsed(seconds: float) -> str:
+    """
+    _human_elapsed: formata tempo decorrido.
+
+    input:
+        seconds, segundos decorridos.
+
+    output:
+        str, tempo formatado (ex: 01:23).
+    """
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _extract_plan_entries(plan: dict) -> list[dict]:
+    """
+    _extract_plan_entries: extrai entradas de download do plano.
+
+    input:
+        plan, conteúdo do plan.json.
+
+    output:
+        list[dict], entradas normalizadas com username, filename, size, local_path.
+    """
+    entries = []
+
+    for track in plan.get("tracks", []):
+        entries.append(
+            {
+                "username": track["username"],
+                "filename": track["filename"],
+                "size": track.get("size", 0),
+                "local_path": track["local_path"],
+            }
+        )
+
+    for album_name, album_data in plan.get("albums", {}).items():
+        best_users = plan.get("best_users", {}).get(album_name, [])
+
+        if best_users:
+            best_username = best_users[0]["username"]
+            files = album_data["users"].get(best_username, [])
+        else:
+            all_files = []
+
+            for username, user_files in album_data["users"].items():
+                all_files.extend(user_files)
+
+            files = all_files
+
+        for f in files:
+            entries.append(
+                {
+                    "username": f.get("username", ""),
+                    "filename": f.get("filename", ""),
+                    "size": f.get("size", 0),
+                    "local_path": f.get("local_path", ""),
+                }
+            )
+
+    return entries
+
+
 def _run_install(args: argparse.Namespace) -> int:
+    """
+    _run_install: executa downloads a partir de um plano batch.
+
+    input:
+        args, argumentos do comando install.
+
+    output:
+        int, código de saída do install.
+    """
+    if args.plan is None:
+        console.print("[red]Especifique --plan com o caminho para plan.json[/red]")
+        return 2
+
+    try:
+        plan = json.loads(args.plan.read_text())
+    except (OSError, ValueError) as error:
+        console.print(f"[red]Erro ao ler plano:[/red] {error}")
+        return 2
+
+    entries = _extract_plan_entries(plan)
+
+    if not entries:
+        console.print("[yellow]Nenhuma entrada no plano.[/yellow]")
+        return 1
+
+    console.print(f"[cyan]Total de arquivos:[/cyan] {len(entries)}")
+
+    if not args.execute:
+        for entry in entries[:10]:
+            console.print(
+                f"  {entry['local_path']}: "
+                f"{entry['username']} → {_human_size(entry['size'])}"
+            )
+
+        if len(entries) > 10:
+            console.print(f"  ... e mais {len(entries) - 10} arquivos")
+
+        console.print(
+            "\n[yellow]Dry-run:[/yellow] use --execute para iniciar downloads."
+        )
+        return 0
+
+    try:
+        config = SlskdConfig.from_sources(
+            url=args.url,
+            token=os.getenv("KEEF_SLSKD_TOKEN"),
+            timeout=args.timeout,
+            persist_url=args.url is not None,
+        )
+    except ValueError as error:
+        console.print(f"[red]Configuração inválida:[/red] {error}")
+        return 2
+
+    client = SlskdClient(config)
+    start_time = time.monotonic()
+    downloaded_bytes = 0
+    completed_files = 0
+    failed_files = 0
+
+    try:
+        with Progress(console=console) as progress:
+            main_task = progress.add_task(
+                "Instalando", total=len(entries), completed=0
+            )
+            size_task = progress.add_task(
+                "Transferido", total=None, completed=0
+            )
+
+            for entry in entries:
+                username = entry["username"]
+                filename = entry["filename"]
+                size = entry["size"]
+
+                if not username or not filename:
+                    failed_files += 1
+                    progress.advance(main_task, 1)
+                    continue
+
+                try:
+                    response = client.enqueue_download(
+                        username=username,
+                        filename=filename,
+                        size=size,
+                        destination=str(args.staging_dir),
+                    )
+
+                    downloaded_bytes += size
+                    completed_files += 1
+
+                    elapsed = time.monotonic() - start_time
+                    rate = downloaded_bytes / elapsed if elapsed > 0 else 0
+
+                    progress.update(size_task, completed=downloaded_bytes)
+                    progress.advance(main_task, 1)
+
+                    progress.update(
+                        main_task,
+                        description=(
+                            f"[cyan]Instalando[/cyan] "
+                            f"{completed_files}/{len(entries)} | "
+                            f"{_human_elapsed(elapsed)} | "
+                            f"{_human_rate(rate)} | "
+                            f"{_human_size(downloaded_bytes)}"
+                        ),
+                    )
+
+                except (httpx.HTTPError, OSError, TypeError, ValueError) as error:
+                    failed_files += 1
+                    progress.advance(main_task, 1)
+                    console.print(
+                        f"\n[red]Falha:[/red] {filename}: {error}"
+                    )
+
+    finally:
+        client.close()
+
+    elapsed = time.monotonic() - start_time
+    rate = downloaded_bytes / elapsed if elapsed > 0 else 0
+
+    console.print(
+        f"\n[green]Concluído:[/green] {completed_files}/{len(entries)} arquivos "
+        f"({_human_size(downloaded_bytes)}) em {_human_elapsed(elapsed)} "
+        f"({_human_rate(rate)})"
+    )
+
+    if failed_files > 0:
+        console.print(f"[red]Falhas:[/red] {failed_files} arquivos")
+
+    return 0 if failed_files == 0 else 1
     """
     _run_install: executa o fluxo single-track seguro.
 
