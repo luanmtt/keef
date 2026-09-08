@@ -1,6 +1,6 @@
-# keef
+# keef 🚬
 
-CLI para atualização segura de bibliotecas musicais via Soulseek (backend slskd).
+CLI para dar update nas suas bibliotecas musicais! and it takes less time than one drag...
 
 ## Stack
 
