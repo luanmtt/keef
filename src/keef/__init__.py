@@ -127,8 +127,8 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument(
         "--staging-dir",
         type=Path,
-        default=Path("keef-staging"),
-        help="pasta de staging para o download",
+        default=Path("keef"),
+        help="pasta de staging dentro do slskd (relativa ao diretório de downloads)",
     )
     install_parser.add_argument(
         "--execute",
