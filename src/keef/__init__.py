@@ -373,6 +373,41 @@ def _install_config(args: argparse.Namespace) -> SlskdConfig:
     )
 
 
+def _format_download_error(error: Exception) -> str:
+    """
+    _format_download_error: converte erro de download em mensagem legível.
+
+    input:
+        error, exceção capturada ao enfileirar um download.
+
+    output:
+        str, mensagem com diagnóstico de timeout, HTTP ou de rede.
+    """
+    if isinstance(error, httpx.TimeoutException):
+        return (
+            "o slskd demorou para responder — peer offline, lento "
+            "ou fora da rede"
+        )
+
+    if isinstance(error, httpx.HTTPStatusError):
+        response = error.response
+
+        try:
+            payload = response.json()
+        except (ValueError, TypeError):
+            payload = None
+
+        if isinstance(payload, dict):
+            message = payload.get("message") or payload.get("error")
+
+            if isinstance(message, str) and message:
+                return f"slskd recusou ({response.status_code}): {message}"
+
+        return f"slskd respondeu HTTP {response.status_code}"
+
+    return str(error) or error.__class__.__name__
+
+
 def _human_size(bytes_val: int | float) -> str:
     """
     _human_size: formata bytes em unidades legíveis.
@@ -583,7 +618,8 @@ def _run_install(args: argparse.Namespace) -> int:
                     failed_files += 1
                     progress.advance(main_task, 1)
                     console.print(
-                        f"\n[red]Falha:[/red] {filename}: {error}"
+                        f"\n[red]Falha:[/red] {filename}: "
+                        f"{_format_download_error(error)}"
                     )
 
     finally:

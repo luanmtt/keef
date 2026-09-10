@@ -140,6 +140,9 @@ def read_audio(path: Path) -> MusicTrack:
     track_number = track_number or filename_values.get("track_number")
     bitrate = _quality_value(info, "bitrate")
     bitrate_kbps = round(bitrate / 1000) if bitrate is not None else None
+    title = title.strip() if isinstance(title, str) else None
+    artist = artist.strip() if isinstance(artist, str) else None
+    album = album.strip() if isinstance(album, str) else None
     missing_metadata = [
         name
         for name, value in {

@@ -39,6 +39,16 @@ class FakeFlacAudio(FakeAudio):
     __class__ = type("FLAC", (), {})
 
 
+class MessyAudio(FakeAudio):
+    tags = {
+        "title": ["  Blue  "],
+        "artist": ["  Artist  "],
+        "album": ["  Album  "],
+        "tracknumber": ["1/10"],
+    }
+    __class__ = type("MP3", (), {})
+
+
 def _make_mutagen_stub(audio: object):
     """
     _make_mutagen_stub: cria stub para MutagenFile.
@@ -137,6 +147,25 @@ def test_read_audio_uses_filename_fallback(monkeypatch) -> None:
     assert track.artist == "Brent Faiyaz"
     assert track.title == "LOOSE CHANGE"
     assert track.missing_metadata == ["album"]
+
+
+def test_read_audio_strips_tag_whitespace(monkeypatch) -> None:
+    """
+    test_read_audio_strips_tag_whitespace: remove espaços das tags.
+
+    input:
+        áudio simulado com tags contendo espaços nas bordas.
+
+    output:
+        None, teste aprovado quando os campos saem sem espaços.
+    """
+    monkeypatch.setattr(keef.music, "MutagenFile", _make_mutagen_stub(MessyAudio()))
+
+    track = keef.music.read_audio(Path("music.mp3"))
+
+    assert track.title == "Blue"
+    assert track.artist == "Artist"
+    assert track.album == "Album"
 
 
 def test_try_read_audio_returns_error_for_missing_file() -> None:

@@ -597,6 +597,71 @@ def test_rename_command_dry_run_shows_planned_renames(
     assert (tmp_path / "09 - What Do You See_.mp3").exists()
 
 
+def test_format_download_error_timeout() -> None:
+    """
+    test_format_download_error_timeout: descreve timeout de forma legível.
+
+    input:
+        exceção de timeout do httpx.
+
+    output:
+        None, teste aprovado quando a mensagem menciona peer offline.
+    """
+    import httpx
+
+    message = keef._format_download_error(httpx.TimeoutException("timed out"))
+
+    assert "peer" in message
+
+
+def test_format_download_error_http_status_with_message() -> None:
+    """
+    test_format_download_error_http_status_with_message: extrai mensagem do slskd.
+
+    input:
+        resposta HTTP com corpo JSON contendo message.
+
+    output:
+        None, teste aprovado quando a mensagem do slskd aparece.
+    """
+    import httpx
+    from unittest.mock import Mock
+
+    request = Mock()
+    response = Mock()
+    response.status_code = 400
+    response.json.return_value = {"message": "peer not found"}
+    error = httpx.HTTPStatusError("bad", request=request, response=response)
+
+    message = keef._format_download_error(error)
+
+    assert "peer not found" in message
+
+
+def test_format_download_error_http_status_without_body() -> None:
+    """
+    test_format_download_error_http_status_without_body: mostra status HTTP.
+
+    input:
+        resposta HTTP sem corpo JSON interpretável.
+
+    output:
+        None, teste aprovado quando a mensagem contém o código.
+    """
+    import httpx
+    from unittest.mock import Mock
+
+    request = Mock()
+    response = Mock()
+    response.status_code = 503
+    response.json.side_effect = ValueError("não é json")
+    error = httpx.HTTPStatusError("bad", request=request, response=response)
+
+    message = keef._format_download_error(error)
+
+    assert "503" in message
+
+
 def test_rename_command_applies_renames(monkeypatch, tmp_path: Path) -> None:
     """
     test_rename_command_applies_renames: aplica renomeações no filesystem.
