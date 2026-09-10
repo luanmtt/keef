@@ -797,35 +797,64 @@ def _render_preview(items) -> None:
         items, resultados individuais do preview.
 
     output:
-        None, imprime tabela Rich no console.
+        None, imprime resumo por faixa com melhores resultados.
     """
-    table = Table(title="Preview batch")
-    table.add_column("Arquivo local", no_wrap=True)
-    table.add_column("Candidato", no_wrap=True)
-    table.add_column("Score", no_wrap=True)
-    table.add_column("Qualidade", no_wrap=True)
-    table.add_column("Decisão", no_wrap=True)
-
     for item in items:
         if item.error:
-            table.add_row(item.track.path, "-", "-", "-", f"erro: {item.error}")
-            continue
-
-        if not item.candidates:
-            table.add_row(item.track.path, "-", "-", "-", "sem candidatos")
-            continue
-
-        for match, quality in zip(item.candidates, item.quality_decisions):
-            accepted = match.accepted and quality.eligible
-            table.add_row(
-                item.track.path,
-                match.candidate.filename,
-                f"{match.score:.2f}",
-                quality.reason,
-                "elegível" if accepted else "rejeitado",
+            console.print(
+                f"[red]{_track_label(item.track)}: erro — {item.error}[/red]"
             )
+            console.print()
+            continue
 
-    console.print(table)
+        count = len(item.candidates)
+        console.print(
+            f"[bold]{_track_label(item.track)}[/bold] obteve "
+            f"[yellow]{count}[/yellow] resultado"
+            f"{'s' if count != 1 else ''}."
+        )
+        console.print("|")
+        console.print("|")
+
+        accepted = [
+            (match, quality)
+            for match, quality in zip(item.candidates, item.quality_decisions)
+            if match.accepted and quality.eligible
+        ]
+
+        if not accepted:
+            console.print("[dim]- melhores resultados: nenhum aceito[/dim]")
+        else:
+            console.print("[dim]- melhores resultados:[/dim]")
+
+            for match, quality in accepted[:5]:
+                console.print(
+                    f"  [green]{match.candidate.username}[/green] "
+                    f"[cyan]{match.candidate.filename}[/cyan]"
+                )
+
+            if len(accepted) > 5:
+                console.print(
+                    f"  [dim]... e mais {len(accepted) - 5} aceitos[/dim]"
+                )
+
+        console.print()
+
+
+def _track_label(track) -> str:
+    """
+    _track_label: monta rótulo exibível de uma faixa.
+
+    input:
+        track, metadados da música.
+
+    output:
+        str, título ou caminho como rótulo do preview.
+    """
+    if track.title and track.artist:
+        return f"{track.title} — {track.artist}"
+
+    return track.title or track.path
 
 
 def _is_album_track(track_path: str) -> bool:
