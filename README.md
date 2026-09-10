@@ -147,6 +147,23 @@ O monitoramento mostra:
 - Arquivos completos / total
 - Bytes acumulados
 
+### 5. Renomear downloads
+
+Os arquivos baixados vêm com nomes crus do Soulseek. Para padronizar:
+
+```bash
+./keef rename ~/.local/share/slskd/downloads/keef --dry   # mostra o que faria
+./keef rename ~/.local/share/slskd/downloads/keef          # aplica
+```
+
+Regras de formatação (lendo as tags via mutagen):
+
+- Faixa com número → `{nn}. {música} - {artista}.ext` (formato álbum)
+- Faixa sem número → `{música} - {artista}.ext`
+- Sem título → mantém o nome original
+- Colisões de nome → adiciona sufixo `(1)`, `(2)`, etc.
+- Caracteres inválidos do filesystem → removidos
+
 ## Testes
 
 ```bash

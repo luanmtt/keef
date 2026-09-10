@@ -548,3 +548,96 @@ def test_preview_online_saves_plan_next_to_report_by_default(monkeypatch, tmp_pa
     assert len(plan["tracks"]) == 1
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def test_rename_command_dry_run_shows_planned_renames(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """
+    test_rename_command_dry_run_shows_planned_renames: protege dry-run do rename.
+
+    input:
+        diretório com um mp3 e metadados simulados.
+
+    output:
+        None, teste aprovado quando dry-run mostra o destino sem aplicar.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    (tmp_path / "09 - What Do You See_.mp3").write_bytes(b"fake")
+
+    def fake_read_audio(path):
+        """
+        fake_read_audio: retorna metadados fixos.
+
+        input:
+            path, caminho do arquivo.
+
+        output:
+            MusicTrack, metadados simulados.
+        """
+        return MusicTrack(
+            path=str(path),
+            title="What Do You See",
+            artist="Wire",
+            track_number=9,
+        )
+
+    monkeypatch.setattr("keef.rename.read_audio", fake_read_audio)
+
+    exit_code = keef._run_rename(
+        Namespace(directory=tmp_path, dry=True)
+    )
+
+    assert exit_code == 0
+    assert "Renomeações: 1" in output.getvalue()
+    assert "09. What Do You See - Wire.mp3" in output.getvalue()
+    assert "Dry-run" in output.getvalue()
+    assert (tmp_path / "09 - What Do You See_.mp3").exists()
+
+
+def test_rename_command_applies_renames(monkeypatch, tmp_path: Path) -> None:
+    """
+    test_rename_command_applies_renames: aplica renomeações no filesystem.
+
+    input:
+        diretório com um mp3 e metadados simulados.
+
+    output:
+        None, teste aprovado quando o arquivo é renomeado no disco.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    (tmp_path / "09 - What Do You See_.mp3").write_bytes(b"fake")
+
+    def fake_read_audio(path):
+        """
+        fake_read_audio: retorna metadados fixos.
+
+        input:
+            path, caminho do arquivo.
+
+        output:
+            MusicTrack, metadados simulados.
+        """
+        return MusicTrack(
+            path=str(path),
+            title="What Do You See",
+            artist="Wire",
+            track_number=9,
+        )
+
+    monkeypatch.setattr("keef.rename.read_audio", fake_read_audio)
+
+    exit_code = keef._run_rename(
+        Namespace(directory=tmp_path, dry=False)
+    )
+
+    assert exit_code == 0
+    assert "Renomeados: 1" in output.getvalue()
+    assert not (tmp_path / "09 - What Do You See_.mp3").exists()
+    assert (tmp_path / "09. What Do You See - Wire.mp3").exists()
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

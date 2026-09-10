@@ -18,6 +18,7 @@ from keef.matching import candidates_from_responses, score_candidate
 from keef.models import BatchPreviewItem, ConnectionReport, QualityPolicy, SearchRequest
 from keef.music import try_read_audio
 from keef.outputs import create_output_dir, write_metadata_report
+from keef.rename import RenameEntry, plan_renames
 from keef.slskd import SlskdClient
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -204,6 +205,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     preview_parser.add_argument("--url", help="URL base da API do slskd")
     preview_parser.add_argument("--timeout", type=float, help="timeout em segundos")
+
+    rename_parser = subparsers.add_parser(
+        "rename",
+        help="renomeia downloads para o formato padrão de biblioteca",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Exemplo:\n"
+            "  keef rename downloads/keef\n"
+            "  keef rename downloads/keef --dry\n"
+            "  keef rename staging --execute"
+        ),
+    )
+    rename_parser.add_argument("directory", type=Path, help="diretório com os downloads")
+    rename_parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="apenas mostra as renomeações sem aplicar",
+    )
 
     return parser
 
@@ -1128,6 +1147,75 @@ def _run_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_rename(args: argparse.Namespace) -> int:
+    """
+    _run_rename: renomeia downloads para o formato padrão de biblioteca.
+
+    input:
+        args, diretório e opção de dry-run.
+
+    output:
+        int, código de saída do rename.
+    """
+    if not args.directory.exists():
+        console.print(f"[red]Diretório não encontrado:[/red] {args.directory}")
+        return 2
+
+    if not args.directory.is_dir():
+        console.print(f"[red]Não é um diretório:[/red] {args.directory}")
+        return 2
+
+    entries = plan_renames(args.directory)
+    pending: list[tuple[str, str]] = []
+    unchanged: list[RenameEntry] = []
+
+    for entry in entries:
+        destination = entry["destination"]
+
+        if destination is None or destination == entry["source"]:
+            unchanged.append(entry)
+        else:
+            pending.append((entry["source"], destination))
+
+    for entry in unchanged:
+        if entry["destination"] is None:
+            console.print(
+                f"[yellow]Ignorado:[/yellow] {Path(entry['source']).name} — "
+                f"{entry['reason']}"
+            )
+
+    if not pending:
+        console.print("[yellow]Nenhum arquivo para renomear.[/yellow]")
+        return 0
+
+    console.print(f"[cyan]Renomeações:[/cyan] {len(pending)}")
+
+    for source_path, destination_path in pending:
+        console.print(
+            f"  {Path(source_path).name} → [green]{Path(destination_path).name}[/green]"
+        )
+
+    if args.dry:
+        console.print("\n[yellow]Dry-run:[/yellow] use sem --dry para aplicar.")
+        return 0
+
+    applied = 0
+
+    for source_path, destination_path in pending:
+        try:
+            Path(source_path).rename(destination_path)
+            applied += 1
+        except OSError as error:
+            console.print(
+                f"[red]Falha ao renomear:[/red] {source_path}: {error}"
+            )
+            return 1
+
+    console.print(f"[green]Renomeados:[/green] {applied} arquivos.")
+
+    return 0
+
+
 def main() -> int:
     """
     main: executa a CLI.
@@ -1151,6 +1239,9 @@ def main() -> int:
 
     if args.command == "preview":
         return _run_preview(args)
+
+    if args.command == "rename":
+        return _run_rename(args)
 
     return 2
 
