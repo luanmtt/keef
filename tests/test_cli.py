@@ -360,6 +360,59 @@ def test_scan_command_writes_report(monkeypatch, tmp_path) -> None:
     assert "metadata.json" in output.getvalue()
 
 
+def test_scan_command_defaults_to_scanned_directory(monkeypatch, tmp_path) -> None:
+    """
+    test_scan_command_defaults_to_scanned_directory: grava na pasta escaneada.
+
+    input:
+        diretório e resultado de scan simulados sem --output-dir.
+
+    output:
+        None, teste aprovado quando o relatório fica junto da biblioteca.
+    """
+    track = MusicTrack(path="blue.mp3", title="Blue")
+    scan_result = LibraryScanResult(tracks=[track])
+    report_path = tmp_path / "metadata.json"
+
+    def fake_scan(directory: Path) -> LibraryScanResult:
+        """
+        fake_scan: retorna biblioteca simulada.
+
+        input:
+            directory, diretório recebido pela CLI.
+
+        output:
+            LibraryScanResult, resultado fixo do parsing.
+        """
+        return scan_result
+
+    def fake_write_report(directory, tracks, errors) -> Path:
+        """
+        fake_write_report: registra destino sem criar diretório temporal.
+
+        input:
+            directory, tracks e errors do scan.
+
+        output:
+            Path, caminho do relatório simulado.
+        """
+        assert directory == tmp_path
+        return report_path
+
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+    monkeypatch.setattr(keef, "scan_library", fake_scan)
+    monkeypatch.setattr(keef, "create_output_dir", lambda root: None)
+    monkeypatch.setattr(keef, "write_metadata_report", fake_write_report)
+
+    exit_code = keef._run_scan(
+        Namespace(directory=tmp_path, output_dir=None)
+    )
+
+    assert exit_code == 0
+    assert str(report_path) in output.getvalue()
+
+
 class FakePreviewClient(FakeClient):
     def __init__(self, report: ConnectionReport, search_result: SearchResult) -> None:
         """

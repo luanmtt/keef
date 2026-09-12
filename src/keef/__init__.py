@@ -153,8 +153,11 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs"),
-        help="diretório raiz dos relatórios",
+        default=None,
+        help=(
+            "diretório de relatórios com subpasta temporal; "
+            "por padrão grava metadata.json na própria pasta escaneada"
+        ),
     )
 
     preview_parser = subparsers.add_parser(
@@ -779,8 +782,14 @@ def _run_scan(args: argparse.Namespace) -> int:
         console.print(f"[red]{error}[/red]")
         return 2
 
-    output_dir = create_output_dir(args.output_dir)
-    report_path = write_metadata_report(output_dir, result.tracks, result.errors)
+    if args.output_dir is None:
+        report_path = write_metadata_report(
+            args.directory, result.tracks, result.errors
+        )
+    else:
+        output_dir = create_output_dir(args.output_dir)
+        report_path = write_metadata_report(output_dir, result.tracks, result.errors)
+
     _render_scan_summary(result, report_path)
 
     if not result.tracks:

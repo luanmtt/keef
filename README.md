@@ -61,9 +61,9 @@ Para evitar carregar variáveis manualmente, use o wrapper `./keef`:
 
 ```bash
 ./keef status
-./keef scan songs --output-dir outputs
-./keef preview outputs/08-19-35/metadata.json --online --verbose
-./keef install --plan outputs/08-19-35/plan.json --execute
+./keef scan songs/aimless
+./keef preview songs/aimless/metadata.json --online --verbose
+./keef install --plan songs/aimless/plan.json --execute
 ```
 
 Alternativamente, com `direnv` instalado:
@@ -90,15 +90,21 @@ songs/
 ### 2. Escanear
 
 ```bash
-./keef scan songs --output-dir outputs
+./keef scan songs/aimless
 ```
 
-Gera `outputs/DD-HH-MM/metadata.json` com metadados de todas as faixas.
+Gera `metadata.json` **dentro da pasta escaneada**, junto das músicas:
+
+```
+songs/aimless/
+├── track individual.mp3
+└── metadata.json
+```
 
 ### 3. Preview (pesquisa no Soulseek)
 
 ```bash
-./keef preview outputs/08-19-35/metadata.json \
+./keef preview songs/aimless/metadata.json \
   --online \
   --verbose \
   --policy higher \
@@ -121,7 +127,7 @@ Políticas de qualidade:
 ### 4. Instalar (download)
 
 ```bash
-./keef install --plan outputs/08-19-35/plan.json --execute
+./keef install --plan songs/aimless/plan.json --execute
 ```
 
 O download vai para o diretório de downloads do slskd, subpasta `keef/`:
