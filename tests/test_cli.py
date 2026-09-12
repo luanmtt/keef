@@ -889,7 +889,7 @@ def test_print_preview_header_shows_online_mode(monkeypatch) -> None:
         flag online verdadeira.
 
     output:
-        None, teste aprovado quando o cabeçalho contém o modo.
+        None, teste aprovado quando o cabeçalho contém o processo.
     """
     output = StringIO()
     monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
@@ -898,26 +898,25 @@ def test_print_preview_header_shows_online_mode(monkeypatch) -> None:
 
     rendered = output.getvalue()
     assert "keef: preview" in rendered
-    assert "--online" in rendered
     assert "━" in rendered
 
 
 def test_print_preview_header_shows_offline_mode(monkeypatch) -> None:
     """
-    test_print_preview_header_shows_offline_mode: mostra modo offline.
+    test_print_preview_header_shows_offline_mode: imprime cabeçalho offline.
 
     input:
         flag online falsa.
 
     output:
-        None, teste aprovado quando o cabeçalho contém --offline.
+        None, teste aprovado quando o cabeçalho contém o processo.
     """
     output = StringIO()
     monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
 
     keef._print_preview_header(False)
 
-    assert "--offline" in output.getvalue()
+    assert "keef: preview" in output.getvalue()
 
 
 def test_render_preview_skips_tracks_without_accepted(monkeypatch) -> None:

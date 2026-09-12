@@ -757,8 +757,11 @@ def _render_scan_summary(result, report_path: Path) -> None:
     """
     album_count = sum(1 for t in result.tracks if _is_album_track(t.path))
     track_count = len(result.tracks) - album_count
-
+    
+    print()
+    _print_separator()
     console.print(
+        f"keef: [italic]scan[/italic]\n\n"
         f"[green]Tracks individuais:[/green] {track_count}\n"
         f"[green]💿 Tracks em álbuns:[/green] {album_count}\n"
         f"[yellow]Erros:[/yellow] {len(result.errors)}\n"
@@ -867,10 +870,11 @@ def _print_preview_header(online: bool) -> None:
     output:
         None, imprime barra e linha do processo.
     """
-    option = "--online" if online else "--offline"
-    console.print()
+    print()
     _print_separator()
-    console.print(f"keef: preview ([italic]{option}[/italic])")
+    console.print(
+        f"keef: [italic]preview[/italic]"
+    )
 
 
 def _track_label(track) -> str:
@@ -1205,6 +1209,8 @@ def _run_preview(args: argparse.Namespace) -> int:
             console.print(f"[red]Configuração inválida:[/red] {error}")
             return 2
 
+    query_separator_printed = False
+
     def candidate_provider(track, progress=None, task_id=None) -> list:
         """
         candidate_provider: pesquisa candidatos para uma track.
@@ -1217,6 +1223,8 @@ def _run_preview(args: argparse.Namespace) -> int:
         output:
             list, candidatos normalizados ou lista vazia no modo offline.
         """
+        nonlocal query_separator_printed
+
         if client is None:
             if progress is not None:
                 progress.advance(task_id, 1)
@@ -1225,6 +1233,10 @@ def _run_preview(args: argparse.Namespace) -> int:
 
         queries = _search_queries(track.title, track.album, track.artist)
         responses: list = []
+
+        if args.verbose and not query_separator_printed:
+            _print_separator()
+            query_separator_printed = True
 
         for query, removed in queries:
             if args.verbose:
@@ -1281,7 +1293,8 @@ def _run_preview(args: argparse.Namespace) -> int:
     finally:
         if client is not None:
             client.close()
-
+    
+    print()
     _print_separator()
     _render_preview(items)
     _render_album_summary(items)
