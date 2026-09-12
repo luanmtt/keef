@@ -880,4 +880,108 @@ def test_render_missing_summary_keeps_error_detail(monkeypatch) -> None:
     assert "Broken — Artist" in rendered
     assert "falha de rede" in rendered
 
+
+def test_print_preview_header_shows_online_mode(monkeypatch) -> None:
+    """
+    test_print_preview_header_shows_online_mode: mostra modo online no cabeçalho.
+
+    input:
+        flag online verdadeira.
+
+    output:
+        None, teste aprovado quando o cabeçalho contém o modo.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    keef._print_preview_header(True)
+
+    rendered = output.getvalue()
+    assert "keef: preview" in rendered
+    assert "--online" in rendered
+    assert "━" in rendered
+
+
+def test_print_preview_header_shows_offline_mode(monkeypatch) -> None:
+    """
+    test_print_preview_header_shows_offline_mode: mostra modo offline.
+
+    input:
+        flag online falsa.
+
+    output:
+        None, teste aprovado quando o cabeçalho contém --offline.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    keef._print_preview_header(False)
+
+    assert "--offline" in output.getvalue()
+
+
+def test_render_preview_skips_tracks_without_accepted(monkeypatch) -> None:
+    """
+    test_render_preview_skips_tracks_without_accepted: omite faixas sem aceitos.
+
+    input:
+        uma faixa com candidato aceito e uma sem nenhum.
+
+    output:
+        None, teste aprovado quando a sem aceito não aparece no bloco.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    items = [
+        _accepted_item("Blue", "Artist"),
+        _missing_item("late", "A L E X"),
+    ]
+
+    keef._render_preview(items)
+
+    rendered = output.getvalue()
+    assert "Blue" in rendered
+    assert "late" not in rendered
+
+
+def test_save_batch_plan_skips_empty_plan(tmp_path: Path) -> None:
+    """
+    test_save_batch_plan_skips_empty_plan: não grava plano sem candidatos.
+
+    input:
+        itens sem nenhum candidato aceito.
+
+    output:
+        None, teste aprovado quando retorna False e não cria arquivo.
+    """
+    plan_path = tmp_path / "plan.json"
+    items = [_missing_item("late", "A L E X")]
+
+    saved = keef._save_batch_plan(plan_path, items)
+
+    assert saved is False
+    assert not plan_path.exists()
+
+
+def test_save_batch_plan_writes_when_accepted(tmp_path: Path) -> None:
+    """
+    test_save_batch_plan_writes_when_accepted: grava plano com candidatos.
+
+    input:
+        item com candidato aceito.
+
+    output:
+        None, teste aprovado quando retorna True e cria o arquivo.
+    """
+    plan_path = tmp_path / "plan.json"
+    items = [_accepted_item("Blue", "Artist")]
+
+    saved = keef._save_batch_plan(plan_path, items)
+
+    assert saved is True
+    assert plan_path.exists()
+    payload = json.loads(plan_path.read_text())
+    assert len(payload["tracks"]) == 1
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

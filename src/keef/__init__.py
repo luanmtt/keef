@@ -816,6 +816,15 @@ def _render_preview(items) -> None:
             console.print()
             continue
 
+        accepted = [
+            (match, quality)
+            for match, quality in zip(item.candidates, item.quality_decisions)
+            if match.accepted and quality.eligible
+        ]
+
+        if not accepted:
+            continue
+
         count = len(item.candidates)
         console.print(
             f"[bold]{_track_label(item.track)}[/bold] obteve "
@@ -825,29 +834,43 @@ def _render_preview(items) -> None:
         console.print("|")
         console.print("|")
 
-        accepted = [
-            (match, quality)
-            for match, quality in zip(item.candidates, item.quality_decisions)
-            if match.accepted and quality.eligible
-        ]
+        console.print("[dim]- melhores resultados:[/dim]")
 
-        if not accepted:
-            console.print("[dim]- melhores resultados: nenhum aceito[/dim]")
-        else:
-            console.print("[dim]- melhores resultados:[/dim]")
+        for match, quality in accepted[:5]:
+            console.print(
+                f"  [green]{match.candidate.username}[/green] "
+                f"[cyan]{match.candidate.filename}[/cyan]"
+            )
 
-            for match, quality in accepted[:5]:
-                console.print(
-                    f"  [green]{match.candidate.username}[/green] "
-                    f"[cyan]{match.candidate.filename}[/cyan]"
-                )
-
-            if len(accepted) > 5:
-                console.print(
-                    f"  [dim]... e mais {len(accepted) - 5} aceitos[/dim]"
-                )
+        if len(accepted) > 5:
+            console.print(
+                f"  [dim]... e mais {len(accepted) - 5} aceitos[/dim]"
+            )
 
         console.print()
+
+
+def _print_separator() -> None:
+    """
+    _print_separator: imprime uma barra separadora.
+    """
+    console.print("━" * 50)
+
+
+def _print_preview_header(online: bool) -> None:
+    """
+    _print_preview_header: imprime cabeçalho com modo do preview.
+
+    input:
+        online, True quando o preview pesquisa no slskd.
+
+    output:
+        None, imprime barra e linha do processo.
+    """
+    option = "--online" if online else "--offline"
+    console.print()
+    _print_separator()
+    console.print(f"keef: preview ([italic]{option}[/italic])")
 
 
 def _track_label(track) -> str:
@@ -963,7 +986,7 @@ def _analyze_album_results(
     return result
 
 
-def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> None:
+def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> bool:
     """
     _save_batch_plan: persiste candidatos aceitos para instalação futura.
 
@@ -972,7 +995,7 @@ def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> None:
         items, resultados do preview batch.
 
     output:
-        None, escreve o plano no disco com tracks individuais e fallback de álbuns.
+        bool, True quando o plano contém candidatos e foi escrito.
     """
     plan = {"tracks": [], "albums": {}}
 
@@ -1034,7 +1057,15 @@ def _save_batch_plan(path: Path, items: list[BatchPreviewItem]) -> None:
 
     plan["best_users"] = best_users
 
+    has_tracks = bool(plan["tracks"])
+    has_albums = any(files for files in plan["albums"].values() if files.get("users"))
+
+    if not has_tracks and not has_albums:
+        return False
+
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+
+    return True
 
 
 def _render_album_summary(items: list[BatchPreviewItem]) -> None:
@@ -1156,6 +1187,8 @@ def _run_preview(args: argparse.Namespace) -> int:
         console.print(f"[red]Relatório inválido:[/red] {error}")
         return 2
 
+    _print_preview_header(args.online)
+
     client = None
 
     if args.online:
@@ -1249,13 +1282,20 @@ def _run_preview(args: argparse.Namespace) -> int:
         if client is not None:
             client.close()
 
+    _print_separator()
     _render_preview(items)
     _render_album_summary(items)
     _render_missing_summary(items)
 
     plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
-    _save_batch_plan(plan_path, items)
-    console.print(f"[cyan]Plano salvo em:[/cyan] {plan_path}")
+    saved = _save_batch_plan(plan_path, items)
+
+    if saved:
+        console.print(f"[cyan]Plano salvo em:[/cyan] {plan_path}")
+    else:
+        console.print(
+            "[yellow]Nenhum candidato aceito — plan.json não foi criado.[/yellow]"
+        )
 
     return 0
 
