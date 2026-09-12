@@ -6,8 +6,10 @@ from pathlib import Path
 from rich.console import Console
 
 import keef
+from keef.models import BatchPreviewItem
 from keef.models import ConnectionReport
-from keef.models import MusicTrack, SearchResult
+from keef.models import MatchResult, QualityDecision
+from keef.models import MusicTrack, SearchCandidate, SearchResult
 from keef.library import LibraryScanResult
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -704,5 +706,125 @@ def test_rename_command_applies_renames(monkeypatch, tmp_path: Path) -> None:
     assert "Renomeados: 1" in output.getvalue()
     assert not (tmp_path / "09 - What Do You See_.mp3").exists()
     assert (tmp_path / "09. What Do You See - Wire.mp3").exists()
+
+
+def _accepted_item(title: str, artist: str) -> BatchPreviewItem:
+    """
+    _accepted_item: cria item de preview com candidato aceito.
+
+    input:
+        title, título da faixa local.
+        artist, artista da faixa local.
+
+    output:
+        BatchPreviewItem, item com candidato aceito e elegível.
+    """
+    track = MusicTrack(path=f"{title}.mp3", title=title, artist=artist)
+    candidate = SearchCandidate(
+        username="alice",
+        filename=f"{artist} - {title}.mp3",
+        size=1_000,
+    )
+    match = MatchResult(
+        candidate=candidate,
+        score=0.9,
+        accepted=True,
+        ambiguous=False,
+    )
+
+    return BatchPreviewItem(
+        track=track,
+        candidates=[match],
+        quality_decisions=[QualityDecision(eligible=True, reason="ok")],
+    )
+
+
+def _missing_item(title: str, artist: str) -> BatchPreviewItem:
+    """
+    _missing_item: cria item de preview sem candidato aceito.
+
+    input:
+        title, título da faixa local.
+        artist, artista da faixa local.
+
+    output:
+        BatchPreviewItem, item sem candidatos.
+    """
+    track = MusicTrack(path=f"{title}.mp3", title=title, artist=artist)
+
+    return BatchPreviewItem(track=track, candidates=[], quality_decisions=[])
+
+
+def test_render_missing_summary_lists_missing_tracks(monkeypatch) -> None:
+    """
+    test_render_missing_summary_lists_missing_tracks: lista faixas ausentes.
+
+    input:
+        itens com uma aceita e duas não encontradas.
+
+    output:
+        None, teste aprovado quando o bloco final mostra as ausentes.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    items = [
+        _accepted_item("Blue", "Artist"),
+        _missing_item("Getr", "A L E X"),
+        _missing_item("Already named", "a l e x"),
+    ]
+
+    keef._render_missing_summary(items)
+
+    rendered = output.getvalue()
+    assert "Não encontradas: 2" in rendered
+    assert "Getr — A L E X" in rendered
+    assert "Already named — a l e x" in rendered
+    assert "Blue" not in rendered
+
+
+def test_render_missing_summary_all_found(monkeypatch) -> None:
+    """
+    test_render_missing_summary_all_found: confirma quando tudo foi achado.
+
+    input:
+        itens todos com candidato aceito.
+
+    output:
+        None, teste aprovado quando a mensagem é positiva.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    items = [_accepted_item("Blue", "Artist")]
+
+    keef._render_missing_summary(items)
+
+    rendered = output.getvalue()
+    assert "Todas as faixas foram encontradas" in rendered
+
+
+def test_render_missing_summary_keeps_error_detail(monkeypatch) -> None:
+    """
+    test_render_missing_summary_keeps_error_detail: preserva mensagem de erro.
+
+    input:
+        item com erro de pesquisa.
+
+    output:
+        None, teste aprovado quando o detalhe do erro aparece.
+    """
+    output = StringIO()
+    monkeypatch.setattr(keef, "console", Console(file=output, force_terminal=False))
+
+    track = MusicTrack(path="broken.mp3", title="Broken", artist="Artist")
+    items = [BatchPreviewItem(track=track, error="falha de rede")]
+
+    keef._render_missing_summary(items)
+
+    rendered = output.getvalue()
+    assert "Não encontradas: 1" in rendered
+    assert "Broken — Artist" in rendered
+    assert "falha de rede" in rendered
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -1093,6 +1093,44 @@ def _render_album_summary(items: list[BatchPreviewItem]) -> None:
             )
 
 
+def _render_missing_summary(items) -> None:
+    """
+    _render_missing_summary: mostra faixas sem candidato aceito.
+
+    input:
+        items, resultados individuais do preview.
+
+    output:
+        None, imprime bloco final com faixas não encontradas.
+    """
+    missing = []
+
+    for item in items:
+        if item.error:
+            missing.append((_track_label(item.track), f"erro: {item.error}"))
+            continue
+
+        accepted = any(
+            match.accepted and quality.eligible
+            for match, quality in zip(item.candidates, item.quality_decisions)
+        )
+
+        if not accepted:
+            missing.append((_track_label(item.track), None))
+
+    if not missing:
+        console.print("\n[green]Todas as faixas foram encontradas.[/green]")
+        return
+
+    console.print("\n[red]Não encontradas:[/red] " f"[bold]{len(missing)}[/bold]")
+
+    for label, detail in missing:
+        if detail:
+            console.print(f"  • [bold]{label}[/bold] [dim]({detail})[/dim]")
+        else:
+            console.print(f"  • [bold]{label}[/bold]")
+
+
 def _run_preview(args: argparse.Namespace) -> int:
     """
     _run_preview: executa preview batch offline ou online.
@@ -1204,6 +1242,7 @@ def _run_preview(args: argparse.Namespace) -> int:
 
     _render_preview(items)
     _render_album_summary(items)
+    _render_missing_summary(items)
 
     plan_path = args.output if args.output is not None else args.report.parent / "plan.json"
     _save_batch_plan(plan_path, items)
